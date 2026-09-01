@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Import &amp; Diff · Trino-Secure</title>
+<script>document.documentElement.classList.toggle('dark',(localStorage.getItem('ts-theme')||'dark')==='dark');</script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300..700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="assets/tw.js"></script>
+<link rel="stylesheet" href="assets/theme.css" />
+</head>
+<body>
+<template id="page">
+  <div class="mx-auto max-w-[1320px] px-4 py-6 md:px-6 md:py-8">
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <h1 class="text-2xl font-semibold tracking-tight">Import &amp; Diff</h1>
+        <p class="mt-1 text-sm text-muted-foreground">Paste or upload a <span class="mono">rules.json</span> and review changes against the current Production config before merging.</p>
+      </div>
+      <div class="flex items-center gap-2"><span class="badge badge-neutral" id="step-badge">Step 1 · Source</span></div>
+    </div>
+
+    <!-- step 1: source -->
+    <section id="s1" class="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <div class="card p-5">
+        <h2 class="text-sm font-semibold">Paste JSON</h2>
+        <textarea id="paste" class="input mono mt-3 text-[12px] leading-relaxed" rows="12" placeholder='{ "tables": [ ... ] }'></textarea>
+      </div>
+      <label class="card flex cursor-pointer flex-col items-center justify-center gap-3 border-2 border-dashed p-5 text-center transition-colors hover:border-primary/50 hover:bg-accent/30">
+        <span class="flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground [&>svg]:w-6 [&>svg]:h-6" data-i="upload"></span>
+        <div><p class="text-sm font-medium">Upload rules.json</p><p class="mt-1 text-[12px] text-muted-foreground">Drag &amp; drop or click to browse · max 2 MB</p></div>
+        <input type="file" class="hidden" id="file" />
+      </label>
+    </section>
+    <div class="mt-4 flex items-center justify-between">
+      <p class="text-[12px] text-muted-foreground flex items-center gap-1.5"><span class="[&>svg]:w-4 [&>svg]:h-4" data-i="info"></span>Imported rules are validated before any change is applied.</p>
+      <button class="btn btn-primary btn-sm" id="parse" data-i="diff">Parse &amp; compare</button>
+    </div>
+
+    <!-- step 2: diff (hidden initially) -->
+    <section id="s2" class="mt-6 hidden">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div class="flex items-center gap-3">
+          <h2 class="text-sm font-semibold">Side-by-side diff</h2>
+          <div class="flex items-center gap-3 text-[12px]">
+            <span class="flex items-center gap-1.5"><span class="dot bg-success"></span><span id="nadd">3</span> added</span>
+            <span class="flex items-center gap-1.5"><span class="dot bg-destructive"></span><span id="ndel">1</span> removed</span>
+            <span class="flex items-center gap-1.5"><span class="dot bg-warning"></span><span id="nmod">2</span> changed</span>
+          </div>
+        </div>
+        <div class="seg" id="diffmode"><button aria-selected="true" data-m="split">Split</button><button aria-selected="false" data-m="unified">Unified</button></div>
+      </div>
+
+      <div class="card mt-3 overflow-hidden">
+        <div class="grid grid-cols-2 border-b border-border text-[12px] font-medium">
+          <div class="flex items-center gap-2 px-4 py-2 border-r border-border"><span class="dot bg-muted-foreground"></span>Current · Production v142</div>
+          <div class="flex items-center gap-2 px-4 py-2"><span class="dot bg-primary"></span>Imported · uploaded file</div>
+        </div>
+        <div class="overflow-x-auto"><div id="diff" class="mono text-[12px] leading-relaxed min-w-[700px]"></div></div>
+      </div>
+
+      <div class="card mt-4 p-4">
+        <h3 class="text-[13px] font-semibold">Merge strategy</h3>
+        <div class="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <label class="flex cursor-pointer items-start gap-2.5 rounded-md border border-primary bg-primary/[0.06] p-3"><input type="radio" name="merge" checked class="chk rounded-full mt-0.5" /><div><p class="text-[13px] font-medium">Replace all</p><p class="text-[12px] text-muted-foreground">Imported file becomes the new draft</p></div></label>
+          <label class="flex cursor-pointer items-start gap-2.5 rounded-md border border-border p-3 hover:bg-accent/40"><input type="radio" name="merge" class="chk rounded-full mt-0.5" /><div><p class="text-[13px] font-medium">Merge (add new)</p><p class="text-[12px] text-muted-foreground">Keep current, append additions</p></div></label>
+          <label class="flex cursor-pointer items-start gap-2.5 rounded-md border border-border p-3 hover:bg-accent/40"><input type="radio" name="merge" class="chk rounded-full mt-0.5" /><div><p class="text-[13px] font-medium">Cherry-pick</p><p class="text-[12px] text-muted-foreground">Choose changes individually</p></div></label>
+        </div>
+      </div>
+
+      <div class="mt-4 flex items-center justify-between">
+        <button class="btn btn-ghost btn-sm" id="back" data-i="chevron">Back to source</button>
+        <div class="flex items-center gap-2">
+          <span class="badge badge-success" data-i-pre="checkcircle">Imported config is valid</span>
+          <button class="btn btn-primary btn-sm" id="apply" data-i="check">Apply to draft</button>
+        </div>
+      </div>
+    </section>
+  </div>
+</template>
+<script>window.PAGE = { id: 'import', title: 'Import & Diff' };</script>
+<script src="assets/shell.js"></script>
+<script>
+(function () {
+  var I = Shell.icon;
+  function paint() { document.querySelectorAll('[data-i]').forEach(function (el) { if (!el.dataset.done) { el.innerHTML = I(el.dataset.i) + (el.textContent || ''); el.dataset.done = 1; } }); document.querySelectorAll('[data-i-pre]').forEach(function (el) { if (!el.dataset.done) { el.innerHTML = I(el.dataset.iPre) + el.textContent; el.dataset.done = 1; } }); }
+  paint();
+
+  var SAMPLE = '{\n  "tables": [\n    { "group": "compliance", "catalog": "pii", "schema": "restricted",\n      "table": "customers", "privileges": ["SELECT"],\n      "columns": [{ "name": "ssn", "mask": "hash" }] },\n    { "group": "fraud-investigators", "catalog": "transactions",\n      "schema": "gold", "table": "payments", "privileges": ["SELECT"] },\n    { "group": "data-engineers", "catalog": "ledger", "schema": "staging",\n      "table": ".*", "privileges": ["SELECT","INSERT","DELETE"] }\n  ]\n}';
+
+  var DIFF = [
+    { k: 'ctx', l: '{', r: '{' },
+    { k: 'ctx', l: '  "tables": [', r: '  "tables": [' },
+    { k: 'mod', l: '    { "group":"analysts", "catalog":"pii",', r: '    { "group":"compliance", "catalog":"pii",' },
+    { k: 'ctx', l: '      "schema":"restricted", "table":"customers",', r: '      "schema":"restricted", "table":"customers",' },
+    { k: 'mod', l: '      "privileges":["SELECT"] },', r: '      "privileges":["SELECT"], "columns":[{"name":"ssn","mask":"hash"}] },' },
+    { k: 'add', l: '', r: '    { "group":"fraud-investigators", "catalog":"transactions",' },
+    { k: 'add', l: '', r: '      "schema":"gold", "table":"payments", "privileges":["SELECT"] },' },
+    { k: 'add', l: '', r: '    { "group":"data-engineers", "catalog":"ledger", "schema":"staging",' },
+    { k: 'add', l: '', r: '      "table":".*", "privileges":["SELECT","INSERT","DELETE"] },' },
+    { k: 'del', l: '    { "group":"interns", "catalog":"analytics", "table":".*",', r: '' },
+    { k: 'del', l: '      "privileges":["SELECT"] },', r: '' },
+    { k: 'ctx', l: '  ]', r: '  ]' },
+    { k: 'ctx', l: '}', r: '}' },
+  ];
+
+  function renderDiff(mode) {
+    var cls = { ctx: 'diff-ctx', add: 'diff-add', del: 'diff-del', mod: 'diff-add' };
+    var clsL = { ctx: 'diff-ctx', add: '', del: 'diff-del', mod: 'diff-del' };
+    if (mode === 'unified') {
+      document.getElementById('diff').innerHTML = DIFF.map(function (d) {
+        var out = '';
+        if (d.k === 'mod') { out += line('del', '- ' + d.l.trim()); out += line('add', '+ ' + d.r.trim()); }
+        else if (d.k === 'del') out += line('del', '- ' + d.l.trim());
+        else if (d.k === 'add') out += line('add', '+ ' + d.r.trim());
+        else out += line('ctx', '  ' + d.l.trim());
+        return out;
+      }).join('');
+    } else {
+      document.getElementById('diff').innerHTML = '<div class="grid grid-cols-2">' +
+        '<div class="border-r border-border">' + DIFF.map(function (d) { return cell(d.l ? (clsL[d.k] || 'diff-ctx') : 'opacity-40', d.l); }).join('') + '</div>' +
+        '<div>' + DIFF.map(function (d) { return cell(d.r ? (cls[d.k] || 'diff-ctx') : 'opacity-40', d.r); }).join('') + '</div></div>';
+    }
+  }
+  function cell(c, txt) { return '<div class="' + c + ' px-4 py-0.5 whitespace-pre min-h-[1.5rem]">' + (txt ? esc(txt) : '&nbsp;') + '</div>'; }
+  function line(k, txt) { var c = { add: 'diff-add', del: 'diff-del', ctx: 'diff-ctx' }[k]; return '<div class="' + c + ' px-4 py-0.5 whitespace-pre">' + esc(txt) + '</div>'; }
+  function esc(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
+
+  document.getElementById('parse').addEventListener('click', function () {
+    if (!document.getElementById('paste').value.trim()) document.getElementById('paste').value = SAMPLE;
+    renderDiff('split');
+    document.getElementById('s1').classList.add('hidden');
+    document.querySelector('#s1 + div').classList.add('hidden');
+    document.getElementById('s2').classList.remove('hidden');
+    document.getElementById('step-badge').textContent = 'Step 2 · Review diff';
+    document.getElementById('step-badge').className = 'badge badge-primary';
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+  document.getElementById('file').addEventListener('change', function () { document.getElementById('paste').value = SAMPLE; Shell.toast({ title: 'File loaded', desc: 'rules-staging.json · 84 rules parsed', tone: 'success' }); });
+  document.getElementById('back').addEventListener('click', function () {
+    document.getElementById('s2').classList.add('hidden');
+    document.getElementById('s1').classList.remove('hidden');
+    document.querySelector('#s1 + div').classList.remove('hidden');
+    document.getElementById('step-badge').textContent = 'Step 1 · Source';
+    document.getElementById('step-badge').className = 'badge badge-neutral';
+  });
+  document.getElementById('diffmode').addEventListener('click', function (e) { var b = e.target.closest('[data-m]'); if (!b) return; document.querySelectorAll('[data-m]').forEach(function (x) { x.setAttribute('aria-selected', x === b); }); renderDiff(b.dataset.m); });
+  document.getElementById('apply').addEventListener('click', function () { Shell.confirm({ title: 'Apply imported config to draft?', tone: 'warning', icon: 'upload', okText: 'Apply to draft', subtitle: 'This replaces your current draft with <b>6 changes</b>. You can still review in the Rules Workspace before publishing.', onConfirm: function () { Shell.toast({ title: 'Imported into draft', desc: '6 changes staged · review in Rules Workspace', tone: 'success' }); setTimeout(function () { window.location.href = 'rules-workspace.html'; }, 900); } }); });
+})();
+</script>
+</body>
+</html>

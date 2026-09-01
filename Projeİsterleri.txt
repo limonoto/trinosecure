@@ -1,0 +1,186 @@
+NİZAM Projesi İster Listesi
+
+1. Genel Hedef ve Kapsam Tanımı
+    1.1 Amaç
+        - Trino konfigürasyonlarını tek merkezden, güvenli, görsel, versiyonlu ve denetlenebilir şekilde yönetmek.
+        - Dosya bazlı, dağınık ve hata yapmaya açık yönetimi ortadan kaldırmak.
+        - Trino uygulamasına ait hata yönetimlerini
+
+    1.2 Kapsama Giren konfigürasyonlar
+        - rules.json
+        - resource-groups.json
+        - group-provider.txt
+        - password.db
+        - Katalog konfigleri
+        - API Endpointleri
+
+2. Mimari ve Temel Tasarım İsterleri
+    2.1 Görsel konfigürasyon Editörleri
+    Her dosya için  özel editör:
+
+        rules.json 
+            - Rule priority sıralaması ( drag & drop )
+            - Rule preview "Bu user/group şu aksiyonu yapabilir mi?"
+            - Allow / deny çakışma tespiti
+            - SELECT, OWNERSHIP, INSERT, DELETE, ve UPDATE yetkilerinin user ya da grup bazında seçilebilmesi
+        
+        resource-groups.json
+            - Tree-based görselleştirme
+            - Json dosyasına ait hiyerarşi net şekilde gösterilmeli
+            - Hard / soft limitler grafiksel olarak anlaşılır olmalı
+        
+        group-provider.txt
+            - LDAP / statik kullanıcı ayrımı
+            - Kullanıcı -> Grup ilişkisi görsel tabloda
+        
+        password.db
+            - Plain text gösterimi kesinlikle olmamalı
+            - Kullanıcı şifresi değiştirilebilmeli
+            - Kullanıcı eklenip silinebilmeli
+            - Password decryption type'ı belirlebilmeli
+        
+        Katalog configleri
+            - Kataloglara ait jdbc bilgilerinin girilebilmesi, katalog tipine göre öneri parametre ve key-value pairlerinin listelenmesi
+    
+    2.2 Canlı Validasyon
+        - Edit sırasında: JSON schema validasyon, Trino semantic validasyon
+        - Kaydettikten sonra: "Bu config Trino'da ayağa kalkar mı" kontrolü
+    
+    2.3 Cluster'a kullanıcı eklenmesi
+        - Cluster'a eklenecek kullanıcının arayüz üzerinden eklenip, ilgili gruba dahil edilmesi ve bu kullanıcının cluster'ın tüm node'larında yer aldığından emin olunması
+    
+3. Güvenlik ve Yetkilendirme
+
+    3.1 Role-Based Access Control (RDAC)
+        - Örnek roller: Viewer, Config Editör, Platform Admin
+    
+    3.2 Yetki Kapsamı
+        - Role bazlı: Sadece okuma, Sadece belirli config dosyaları, Sadece belirli resource-group
+    
+    3.3 Audit Logging
+        - Kimin, neyi, ne zaman değiştirdiği görülebilir olmalıdır
+        - Önceki/Sonraki değerler görülebilir olmalıdır
+    
+4. Versiyonlama ve Rollback
+
+    4.1 Versiyon kontrolü
+        - Her değişiklik rollback yapılabilir olmalı
+    
+    4.2 Farklılık Karşılaştırma
+        - Görsel farklılık: Json diff, Logical diff (örneğin limit 10 -> 20)
+    
+    4.3 Rollback Mekanizması 
+        - Tek tıkla ilgili config önceki versiyona dönülebilmeli ve Trino cluster'ına re-deploy edilebilmelidir
+
+5. Deployment ve Entegreasyon
+
+    5.1 Trino Entegreasyonu
+        - Config dağıtım yöntemleri: File sync / Ansible
+        - Controlled restart
+    
+    5.2 Multi-Environment Desteği
+        - Test / Prod
+    
+    5.3 Configlerin Environment Bazlı Eşliğinin tespiti
+        - Spesifik config dosyasını trino cluster'ındaki tüm sunucularda eşit olduğunun kontrolü
+        - LDAP ya da statik kullanıcıların trino cluster'ındaki tüm sunucularda aynı şekilde yer aldığının kontrolü
+
+6. Gözlemleme, Metrik ve Analitik İsterleri
+Bu bölüm, platformun yalnızca "config yönetimi" değil aynı zamanda "Trino iletimm sağlığı ve davranış merkezi olarak izleyen bir kontrolü katmanı" olmasını hedefler
+
+    6.1 Trino API Entegrasyonları
+        Uygulama aşağıdaki Trino API'leri ile entegre olmalıdır.
+            - /v1/query
+            - /v1/query/{queryId}
+            - /v1/cluster
+            - /v1/node
+            - /v1/task
+            - /v1/info
+            - /v1/status
+        Bu API'lerden periyodik olarak veri toplanmalıdır.
+    
+    6.2 Hata (Error & Failure) Analitiği
+
+        6.2.1 Hata Toplama
+        Query execution sırasında oluşan:
+            - USER_ERROR
+            - INTERNAL_ERROR
+            - INSUFFICIENT_RESOURCES
+            - EXCEEDED_TIME_LIMIT gibi hataların istatistikleri çıkarılabilmeli. Bu hata mesajlarının sayıları artırıp azaltılabilmelidir.
+        
+        6.2.2 Hata Grafikleri
+            
+            - Zaman serisi olarak: Hata sayısı ( total / type bazlı), Cluster bazlı hata yoğunluğu
+            - Kullanıcı / resources group bazlı hata dağılımı
+            - Hata bazlı grafik ekranları / hatayı aldıran sunucunun tespiti
+        
+        6.2.3 Hata Drill-Down
+            
+            - Grafikten: Query listesine, Query detayına, İlgili node'lara inebilme
+    
+    6.3 Cluster ve Node İstatistikleri
+
+        6.3.1 Cluster Genel Sağlık Metrikleri
+
+            - Aktif query sayısı 
+            - Running / queued query sayısı 
+            - Coordinator vs worker yük dağılımı
+            - Resource group bazlı concurrency
+        
+        6.3.2 Node (Sunucu) Bazlı İstatistikler
+        Her Trino node için: 
+            - CPU usage
+            - Memory usage
+            - Heap / non-heap ayrımı
+            - Task sayısı
+            - Failed task oranı
+            - Network throughput (varsa)
+         Bu metrikler: Zaman serisi grafikler, Node karşılaştırmalı tablolar şeklinde sunulmalıdır
+
+    6.4 Performans Göstergeleri
+
+        6.4.1 Query Performansı
+        
+            - Ortalama query runtime
+            - Queue wait time
+            - Execution vs planning time ayrımı
+
+        6.4.2 Resource Group Performansı
+
+            - Resource group başına: Ortalama query süresi, Concurrency saturation, Limit aşımları
+            - Soft limit / hard limit etkisi görselleştirilebilmeli
+        
+    6.5 Görselleştirme ve Dashboard İsterleri
+
+        6.5.1 Standart Dashboard'lar
+            
+            - Cluster Overview Dashboard
+            - Error & Failure Dashboard
+            - Resource Group Performance Dashboard
+            - Node Health Dashboard
+        
+        6.5.2 Zaman Aralığı Kontrolü
+
+            - Son 15 Dakika / 1 saat / 24 gün / 7 gün
+            - Spesifik zaman Aralığı
+
+        6.5.3 Filtreleme
+
+            - Cluster
+            - Kullanıcı
+            - Grup
+            - Hata tipi
+
+    6.6 Alerting ve Anomali tespiti
+
+        6.6.1 Statik Eşikler
+            
+            - Hata oranı %X'i aşarsa
+            - Spesifik hata oranı %X'i aşarsa
+        
+        6.6.2 Dinamik Anomali
+            - Anormak hata artışı
+            - Ani performans düşüşü
+
+
+

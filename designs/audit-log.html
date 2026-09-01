@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Audit Log · Trino-Secure</title>
+<script>document.documentElement.classList.toggle('dark',(localStorage.getItem('ts-theme')||'dark')==='dark');</script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300..700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="assets/tw.js"></script>
+<link rel="stylesheet" href="assets/theme.css" />
+</head>
+<body>
+<template id="page">
+  <div class="mx-auto max-w-[1280px] px-4 py-6 md:px-6 md:py-8">
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <h1 class="text-2xl font-semibold tracking-tight">Audit Log</h1>
+        <p class="mt-1 text-sm text-muted-foreground">Every configuration change, immutable and attributed. Showing <span class="font-medium text-foreground" id="shown">8</span> of 2,418 events.</p>
+      </div>
+      <button class="btn btn-outline btn-sm" id="export" data-i="download">Export CSV</button>
+    </div>
+
+    <!-- filters -->
+    <div class="card mt-6 flex flex-wrap items-center gap-2.5 p-3">
+      <div class="relative min-w-[220px] flex-1">
+        <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground [&>svg]:w-4 [&>svg]:h-4" data-i="search"></span>
+        <input id="search" class="input pl-9" placeholder="Search actor, entity, action…" />
+      </div>
+      <select class="input w-auto" id="f-actor"><option value="">All actors</option><option>Ava Reyes</option><option>Marco Vidal</option><option>Priya Nair</option><option>System</option></select>
+      <select class="input w-auto" id="f-action"><option value="">All actions</option><option>Created</option><option>Updated</option><option>Deleted</option><option>Published</option><option>Rolled back</option></select>
+      <select class="input w-auto" id="f-time"><option>Last 7 days</option><option>Last 24 hours</option><option>Last 30 days</option></select>
+      <button class="btn btn-ghost btn-sm" id="clear" data-i="x">Clear</button>
+    </div>
+
+    <div class="card mt-3 overflow-hidden">
+      <div class="overflow-x-auto"><table class="tbl min-w-[860px]">
+        <thead><tr><th class="w-44">Time</th><th>Actor</th><th>Action</th><th>Entity</th><th class="w-24">Env</th><th class="w-10"></th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table></div>
+    </div>
+  </div>
+</template>
+<script>window.PAGE = { id: 'audit', title: 'Audit Log' };</script>
+<script src="assets/shell.js"></script>
+<script>
+(function () {
+  var I = Shell.icon;
+  document.querySelectorAll('[data-i]').forEach(function (el) { el.innerHTML = I(el.dataset.i) + (el.textContent || ''); });
+
+  var actMap = { Created: ['success', 'plus'], Updated: ['info', 'edit'], Deleted: ['destructive', 'trash'], Published: ['primary', 'rocket'], 'Rolled back': ['warning', 'history'], 'Drift': ['warning', 'drift'], 'Validated': ['info', 'check'] };
+  var LOG = [
+    { t: 'Jun 15, 2026 · 14:32:08', actor: 'Ava Reyes', init: 'AR', action: 'Published', entity: 'rules.json → v142', type: 'Authorization', env: 'prod', before: 'revision v141 (83 rules)', after: 'revision v142 (84 rules, 12 changed)' },
+    { t: 'Jun 15, 2026 · 13:58:41', actor: 'Marco Vidal', init: 'MV', action: 'Updated', entity: 'Table rule · pii.restricted.customers', type: 'Authorization', env: 'prod', before: 'SELECT for group:analysts', after: 'SELECT for group:compliance · 3 column masks added' },
+    { t: 'Jun 15, 2026 · 13:30:12', actor: 'System', init: 'SY', action: 'Drift', entity: 'Production cluster config', type: 'System', env: 'prod', before: 'in sync with v141', after: '2 rules differ from published config' },
+    { t: 'Jun 15, 2026 · 11:14:55', actor: 'Priya Nair', init: 'PN', action: 'Created', entity: 'Group · fraud-investigators', type: 'Identity', env: 'prod', before: '—', after: '8 members imported from LDAP' },
+    { t: 'Jun 15, 2026 · 09:02:33', actor: 'Marco Vidal', init: 'MV', action: 'Validated', entity: 'rules.json draft', type: 'Authorization', env: 'staging', before: '—', after: '82 valid · 2 invalid (WRITE privilege, bad regex)' },
+    { t: 'Jun 14, 2026 · 17:45:19', actor: 'Ava Reyes', init: 'AR', action: 'Updated', entity: 'Certificate · trino-internal.pem', type: 'Cluster Security', env: 'prod', before: 'expiry 2026-05-01', after: 'expiry 2027-04-02 · rotated' },
+    { t: 'Jun 14, 2026 · 16:20:07', actor: 'Ava Reyes', init: 'AR', action: 'Rolled back', entity: 'rules.json v140 → v139', type: 'Authorization', env: 'staging', before: 'revision v140', after: 'revision v139 restored' },
+    { t: 'Jun 14, 2026 · 10:11:48', actor: 'Marco Vidal', init: 'MV', action: 'Deleted', entity: 'Table rule · analytics.interns.*', type: 'Authorization', env: 'prod', before: 'SELECT for group:interns', after: '—' },
+  ];
+  var envTone = { prod: 'destructive', staging: 'warning', dev: 'info' };
+
+  var tbody = document.getElementById('rows');
+  function render() {
+    var q = document.getElementById('search').value.toLowerCase();
+    var fa = document.getElementById('f-actor').value, fac = document.getElementById('f-action').value;
+    var list = LOG.filter(function (l) {
+      return (!q || (l.actor + l.entity + l.action).toLowerCase().indexOf(q) > -1) && (!fa || l.actor === fa) && (!fac || l.action === fac);
+    });
+    document.getElementById('shown').textContent = list.length;
+    tbody.innerHTML = list.map(function (l, i) {
+      var m = actMap[l.action] || ['neutral', 'info'];
+      return '<tr class="row-hover cursor-pointer" data-i="' + LOG.indexOf(l) + '">' +
+        '<td class="mono text-[12px] text-muted-foreground whitespace-nowrap">' + l.t + '</td>' +
+        '<td><div class="flex items-center gap-2"><span class="flex h-6 w-6 items-center justify-center rounded-full bg-muted text-[10px] font-semibold">' + l.init + '</span><span class="text-[13px] font-medium">' + l.actor + '</span></div></td>' +
+        '<td><span class="badge badge-' + m[0] + '">' + I(m[1]) + l.action + '</span></td>' +
+        '<td><div class="text-[13px]">' + l.entity + '</div><div class="text-[11px] text-muted-foreground">' + l.type + '</div></td>' +
+        '<td><span class="inline-flex items-center gap-1.5 text-[12px]"><span class="dot bg-' + envTone[l.env] + '"></span>' + l.env + '</span></td>' +
+        '<td><span class="text-muted-foreground [&>svg]:w-4 [&>svg]:h-4">' + I('chevronr') + '</span></td></tr>';
+    }).join('');
+    tbody.querySelectorAll('[data-i]').forEach(function (tr) { tr.addEventListener('click', function () { detail(LOG[+tr.dataset.i]); }); });
+  }
+  render();
+  ['search', 'f-actor', 'f-action'].forEach(function (id) { document.getElementById(id).addEventListener('input', render); });
+  document.getElementById('clear').addEventListener('click', function () { document.getElementById('search').value = ''; document.getElementById('f-actor').value = ''; document.getElementById('f-action').value = ''; render(); });
+
+  function detail(l) {
+    var m = actMap[l.action] || ['neutral', 'info'];
+    var body =
+      '<div class="space-y-5">' +
+      '<div class="flex items-center gap-3"><span class="flex h-10 w-10 items-center justify-center rounded-md bg-' + m[0] + '/12 text-' + m[0] + ' [&>svg]:w-5 [&>svg]:h-5">' + I(m[1]) + '</span>' +
+        '<div><div class="text-[15px] font-semibold">' + l.action + ' · ' + l.type + '</div><div class="text-[12px] text-muted-foreground mono">' + l.t + '</div></div></div>' +
+      '<dl class="grid grid-cols-2 gap-3 text-[13px]">' +
+        '<div><dt class="text-muted-foreground text-[12px]">Actor</dt><dd class="font-medium">' + l.actor + '</dd></div>' +
+        '<div><dt class="text-muted-foreground text-[12px]">Environment</dt><dd class="font-medium flex items-center gap-1.5"><span class="dot bg-' + envTone[l.env] + '"></span>' + l.env + '</dd></div>' +
+        '<div class="col-span-2"><dt class="text-muted-foreground text-[12px]">Entity</dt><dd class="font-medium mono">' + l.entity + '</dd></div>' +
+        '<div class="col-span-2"><dt class="text-muted-foreground text-[12px]">Source IP</dt><dd class="font-medium mono">10.4.22.118 · sso/keycloak</dd></div>' +
+      '</dl>' +
+      '<section><h3 class="mb-2 text-[13px] font-semibold">Before → After</h3>' +
+        '<div class="rounded-md border border-border overflow-hidden text-[12px] mono">' +
+          '<div class="flex gap-2 px-3 py-2 diff-del">' + I('x', 'w-3.5 h-3.5 flex-none mt-0.5') + '<span>' + l.before + '</span></div>' +
+          '<div class="flex gap-2 px-3 py-2 diff-add">' + I('plus', 'w-3.5 h-3.5 flex-none mt-0.5') + '<span>' + l.after + '</span></div>' +
+        '</div></section>' +
+      '<div class="rounded-md bg-muted/50 p-3 text-[12px] text-muted-foreground flex gap-2"><span class="[&>svg]:w-4 [&>svg]:h-4 flex-none">' + I('lock') + '</span>This event is cryptographically chained and cannot be modified or deleted.</div>' +
+      '</div>';
+    Shell.drawer({ title: 'Audit event', subtitle: l.entity, width: 540, body: body,
+      footer: '<button class="btn btn-outline" data-cancel>Close</button><a href="version-history.html" class="btn btn-secondary">' + I('history', 'w-4 h-4') + 'View revision</a>',
+      onMount: function (d, close) { d.querySelector('[data-cancel]').addEventListener('click', close); } });
+  }
+
+  document.getElementById('export').addEventListener('click', function () { Shell.toast({ title: 'Export started', desc: '2,418 events queued · download will begin shortly', tone: 'info' }); });
+})();
+</script>
+</body>
+</html>

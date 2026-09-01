@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Backend Selector · Trino-Secure</title>
+<script>document.documentElement.classList.toggle('dark',(localStorage.getItem('ts-theme')||'dark')==='dark');</script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300..700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="assets/tw.js"></script>
+<link rel="stylesheet" href="assets/theme.css" />
+</head>
+<body>
+<template id="page">
+  <div class="mx-auto max-w-[1080px] px-4 py-6 md:px-6 md:py-8">
+    <div id="head"></div>
+    <p class="mt-4 text-[13px] text-muted-foreground">Choose the engine that evaluates authorization decisions. The current backend determines which screens in this console are authoritative.</p>
+
+    <div class="mt-5 grid grid-cols-1 gap-4 md:grid-cols-3" id="cards"></div>
+
+    <section class="card mt-6 p-5" id="cfg"></section>
+  </div>
+</template>
+<script>window.PAGE = { id: 'backend', title: 'Backend Selector' };</script>
+<script src="assets/shell.js"></script>
+<script>
+(function () {
+  var I = Shell.icon;
+  document.getElementById('head').innerHTML = Shell.ui.pageHeader({ title: 'Access Control Backend', subtitle: 'Where authorization rules are stored and evaluated.' });
+
+  var BACKENDS = [
+    { id: 'file', name: 'File-based', icon: 'shield', tag: 'Active', desc: 'rules.json managed in this console. First-match-wins evaluation.', best: 'Best for full control & versioning' },
+    { id: 'opa', name: 'Open Policy Agent', icon: 'backend', desc: 'Delegate decisions to an OPA server using Rego policies.', best: 'Best for policy-as-code teams' },
+    { id: 'ranger', name: 'Apache Ranger', icon: 'tree', desc: 'Centralized policies and audit via a Ranger admin service.', best: 'Best for multi-engine governance' },
+  ];
+  var current = 'file';
+
+  function render() {
+    document.getElementById('cards').innerHTML = BACKENDS.map(function (b) {
+      var active = b.id === current;
+      return '<button data-b="' + b.id + '" class="card group p-4 text-left transition-all hover:-translate-y-0.5 hover:shadow-md ' + (active ? 'border-primary ring-1 ring-primary/30' : '') + '">' +
+        '<div class="flex items-start justify-between"><span class="flex h-10 w-10 items-center justify-center rounded-lg bg-' + (active ? 'primary/12 text-primary' : 'muted text-muted-foreground') + ' [&>svg]:w-5 [&>svg]:h-5">' + I(b.icon) + '</span>' +
+          (active ? '<span class="badge badge-success">' + I('check') + 'Active</span>' : '<span class="flex h-5 w-5 items-center justify-center rounded-full border border-border"></span>') + '</div>' +
+        '<h3 class="mt-3 text-[15px] font-semibold">' + b.name + '</h3>' +
+        '<p class="mt-1 text-[13px] text-muted-foreground">' + b.desc + '</p>' +
+        '<p class="mt-3 text-[12px] font-medium text-primary">' + b.best + '</p></button>';
+    }).join('');
+    document.querySelectorAll('[data-b]').forEach(function (c) { c.addEventListener('click', function () { select(c.dataset.b); }); });
+    renderCfg();
+  }
+  function select(id) {
+    if (id === current) return;
+    var b = BACKENDS.find(function (x) { return x.id === id; });
+    Shell.confirm({ title: 'Switch to ' + b.name + '?', tone: 'warning', icon: 'backend', okText: 'Switch backend',
+      subtitle: 'Authorization decisions will be evaluated by <b>' + b.name + '</b>. Existing file rules remain stored but inactive until you switch back.',
+      onConfirm: function () { current = id; render(); Shell.toast({ title: 'Backend switched to ' + b.name, tone: 'success' }); } });
+  }
+  function renderCfg() {
+    var el = document.getElementById('cfg');
+    if (current === 'file') {
+      el.innerHTML = '<h3 class="text-[13px] font-semibold">File backend configuration</h3>' +
+        '<div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">' +
+        Shell.ui.field({ label: 'Config source', control: '<input class="input mono" value="http://localhost:8080/v1/security/rules" />' }) +
+        Shell.ui.field({ label: 'Refresh period', control: '<select class="input"><option>30s</option><option>1m</option><option>5m</option></select>' }) + '</div>' +
+        '<div class="mt-4 flex items-center gap-2 rounded-md bg-success/[0.08] border border-success/30 p-3 text-[13px]"><span class="text-success [&>svg]:w-4 [&>svg]:h-4">' + I('checkcircle') + '</span>Connected · 84 rules loaded · last refresh 12s ago</div>';
+    } else if (current === 'opa') {
+      el.innerHTML = '<h3 class="text-[13px] font-semibold">OPA configuration</h3><div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">' +
+        Shell.ui.field({ label: 'OPA server URL', control: '<input class="input mono" placeholder="http://opa:8181" />' }) +
+        Shell.ui.field({ label: 'Policy package', control: '<input class="input mono" placeholder="trino.authz" />' }) +
+        Shell.ui.field({ label: 'Decision path', control: '<input class="input mono" placeholder="/v1/data/trino/authz/allow" />' }) +
+        Shell.ui.field({ label: 'Auth token', control: '<input class="input mono" type="password" placeholder="${ENV:OPA_TOKEN}" />' }) + '</div>';
+    } else {
+      el.innerHTML = '<h3 class="text-[13px] font-semibold">Ranger configuration</h3><div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">' +
+        Shell.ui.field({ label: 'Ranger admin URL', control: '<input class="input mono" placeholder="https://ranger:6182" />' }) +
+        Shell.ui.field({ label: 'Service name', control: '<input class="input mono" placeholder="trino_prod" />' }) +
+        Shell.ui.field({ label: 'Admin token', control: '<input class="input mono" type="password" placeholder="${ENV:RANGER_ADMIN_TOKEN}" />', hint: 'Reference unresolved — define in Secrets', state: 'error' }) +
+        Shell.ui.field({ label: 'Policy poll interval', control: '<select class="input"><option>30s</option><option>1m</option></select>' }) + '</div>';
+    }
+    el.innerHTML += '<div class="mt-4 flex justify-end gap-2"><button class="btn btn-outline btn-sm" id="t2">Test connection</button><button class="btn btn-primary btn-sm" id="s2">Save</button></div>';
+    el.querySelector('#t2').addEventListener('click', function () { var b = this; b.disabled = true; b.textContent = 'Testing…'; setTimeout(function () { b.disabled = false; b.textContent = 'Test connection'; Shell.toast({ title: current === 'ranger' ? 'Connection failed' : 'Connection OK', desc: current === 'ranger' ? 'RANGER_ADMIN_TOKEN unresolved' : 'Reachable', tone: current === 'ranger' ? 'destructive' : 'success' }); }, 1000); });
+    el.querySelector('#s2').addEventListener('click', function () { Shell.toast({ title: 'Backend configuration saved', tone: 'success' }); });
+  }
+  render();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,101 @@
+{
+  "app": {
+    "name": "NİZAM",
+    "tagline": "Trino Yönetim & Gözlemleme"
+  },
+  "nav": {
+    "overview": "Genel Bakış",
+    "dashboard": "Panel",
+    "authorization": "Yetkilendirme",
+    "rules": "Kurallar",
+    "import": "İçe Aktar & Fark",
+    "history": "Sürüm Geçmişi",
+    "identity": "Kimlik & Erişim",
+    "groups": "Gruplar",
+    "mapping": "Kullanıcı Eşleme",
+    "passwords": "Şifre Kullanıcıları",
+    "configuration": "Konfigürasyon",
+    "resourceGroups": "Kaynak Grupları",
+    "catalogs": "Kataloglar",
+    "observability": "Gözlemleme",
+    "clusterHealth": "Cluster Sağlığı",
+    "errors": "Hatalar",
+    "nodes": "Düğümler",
+    "performance": "Performans",
+    "resourcePerformance": "Resource Group Perf.",
+    "governance": "İzleme & Yönetişim",
+    "alerts": "Alarmlar",
+    "audit": "Denetim Günlüğü",
+    "settings": "Ayarlar",
+    "environments": "Ortamlar",
+    "deploy": "Dağıtım & Drift",
+    "appSettings": "Roller & Erişim",
+    "help": "Yardım",
+    "guide": "Kullanım Kılavuzu",
+    "clusterConfig": "Cluster Konfigürasyonu"
+  },
+  "topbar": {
+    "refresh": "Yenile",
+    "signOut": "Çıkış yap",
+    "account": "Hesap",
+    "addEnvironment": "Ortam ekle",
+    "manageEnvironments": "Ortamları yönet",
+    "noEnvironment": "Henüz ortam yok"
+  },
+  "sidebar": {
+    "collapse": "Daralt",
+    "expand": "Genişlet",
+    "collapseAria": "Kenar çubuğunu daralt",
+    "expandAria": "Kenar çubuğunu genişlet",
+    "openMenu": "Menüyü aç",
+    "close": "Menüyü kapat"
+  },
+  "common": {
+    "save": "Kaydet",
+    "cancel": "Vazgeç",
+    "delete": "Sil",
+    "edit": "Düzenle",
+    "add": "Ekle",
+    "loading": "Yükleniyor…",
+    "comingSoon": "Yakında"
+  },
+  "comingSoon": {
+    "title": "Yakında",
+    "description": "Bu modül yol haritasında planlandı ve yakında burada olacak.",
+    "hint": "Bu ekran yakında geliştirilecek."
+  },
+  "audit": {
+    "actions": {
+      "CREATE": "oluşturdu",
+      "UPDATE": "güncelledi",
+      "DELETE": "sildi",
+      "IMPORT": "içe aktardı",
+      "EXPORT": "dışa aktardı",
+      "PUBLISH": "yayınladı",
+      "ROLLBACK": "geri aldı",
+      "DEPLOY": "dağıttı",
+      "RESTART": "yeniden başlattı"
+    }
+  },
+  "dashboard": {
+    "title": "Panel",
+    "subtitle": "Aktif ortamın özeti ve sağlık durumu",
+    "noEnvironmentTitle": "Başlamak için bir ortam ekleyin",
+    "noEnvironmentBody": "Henüz yönetilen bir Trino ortamı yok. İlk ortamı ekleyerek kuralları, kimlikleri ve metrikleri yönetmeye başlayın.",
+    "addEnvironment": "Ortam ekle",
+    "stats": {
+      "rules": "Kural",
+      "groups": "Grup",
+      "versions": "Sürüm",
+      "nodes": "Düğüm"
+    },
+    "sections": {
+      "authorization": "Yetkilendirme",
+      "authorizationBody": "rules.json kurallarını görsel olarak yönetin, doğrulayın ve yayınlayın.",
+      "observability": "Gözlemleme",
+      "observabilityBody": "Cluster sağlığı, hata analitiği ve performans metrikleri.",
+      "recentActivity": "Son Etkinlik",
+      "recentActivityEmpty": "Henüz etkinlik yok."
+    }
+  }
+}

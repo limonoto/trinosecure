@@ -1,0 +1,59 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: trino-secure-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: trinosecure
+      POSTGRES_PASSWORD: trinosecure
+      POSTGRES_DB: trinosecure
+    ports:
+      - "5433:5432"
+    volumes:
+      - trino-secure-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trinosecure -d trinosecure"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Local dev Keycloak (OIDC). Realm + client + test user are imported from
+  # keycloak/import/ on startup. Uses the in-container H2 DB (dev only).
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    container_name: trino-secure-keycloak
+    restart: unless-stopped
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_HOSTNAME_STRICT: "false"
+      KC_HTTP_ENABLED: "true"
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./keycloak/import:/opt/keycloak/data/import:ro
+
+  # Headless Ansible executor — runs playbooks against Trino cluster nodes over SSH.
+  # TrinoSecure calls POST /run; the service writes temp files, runs ansible-playbook,
+  # and returns stdout/stderr + return_code. Requires ANSIBLE_RUNNER_URL env on the
+  # Next.js side (defaults to http://ansible-runner:8000 in Docker Compose).
+  ansible-runner:
+    build:
+      context: ../ansible-runner
+      dockerfile: Dockerfile
+    container_name: trino-secure-ansible-runner
+    restart: unless-stopped
+    environment:
+      ANSIBLE_HOST_KEY_CHECKING: "False"
+      ANSIBLE_STDOUT_CALLBACK: yaml
+    ports:
+      - "8082:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  trino-secure-pgdata:

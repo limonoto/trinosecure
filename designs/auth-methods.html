@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Auth Methods · Trino-Secure</title>
+<script>document.documentElement.classList.toggle('dark',(localStorage.getItem('ts-theme')||'dark')==='dark');</script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300..700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="assets/tw.js"></script>
+<link rel="stylesheet" href="assets/theme.css" />
+</head>
+<body>
+<template id="page">
+  <div class="mx-auto max-w-[1240px] px-4 py-6 md:px-6 md:py-8">
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <h1 class="text-2xl font-semibold tracking-tight">Authentication Methods</h1>
+        <p class="mt-1 text-sm text-muted-foreground">How clients authenticate to the coordinator. Methods are tried in order until one succeeds.</p>
+      </div>
+      <div class="flex items-center gap-2 text-[13px] text-muted-foreground"><span class="[&>svg]:w-4 [&>svg]:h-4" data-i="info"></span>Sign-in UI is handled by Keycloak (OIDC)</div>
+    </div>
+
+    <div class="card mt-6 flex items-center gap-3 border-info/40 bg-info/[0.06] p-4">
+      <span class="flex h-8 w-8 flex-none items-center justify-center rounded-md bg-info/15 text-info [&>svg]:w-[18px] [&>svg]:h-[18px]" data-i="info"></span>
+      <p class="text-[13px] text-muted-foreground"><span class="font-medium text-foreground">3 of 7 methods enabled.</span> Authentication priority: OAuth 2.0 → LDAP → Password file. Drag cards to reorder.</p>
+    </div>
+
+    <div class="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3" id="grid"></div>
+  </div>
+</template>
+<script>window.PAGE = { id: 'auth', title: 'Auth Methods' };</script>
+<script src="assets/shell.js"></script>
+<script>
+(function () {
+  var I = Shell.icon;
+  document.querySelectorAll('[data-i]').forEach(function (el) { el.innerHTML = I(el.dataset.i) + (el.textContent || ''); });
+
+  var METHODS = [
+    { id: 'oauth', name: 'OAuth 2.0 / OIDC', icon: 'key', enabled: true, prio: 1, desc: 'Keycloak · authorization code flow', meta: 'issuer trino-realm · 412 active sessions' },
+    { id: 'ldap', name: 'LDAP', icon: 'users', enabled: true, prio: 2, desc: 'Active Directory bind', meta: 'ldaps://ad.corp.internal:636' },
+    { id: 'password', name: 'Password File', icon: 'userpass', enabled: true, prio: 3, desc: 'Local htpasswd-style users', meta: '14 local users · bcrypt' },
+    { id: 'jwt', name: 'JWT', icon: 'cert', enabled: false, desc: 'Bearer token validation', meta: 'JWKS endpoint not configured' },
+    { id: 'kerberos', name: 'Kerberos', icon: 'lock', enabled: false, desc: 'SPNEGO / GSSAPI', meta: 'keytab required' },
+    { id: 'cert', name: 'Certificate', icon: 'cert', enabled: false, desc: 'Mutual TLS client certs', meta: 'requires HTTPS + truststore' },
+    { id: 'salesforce', name: 'Salesforce', icon: 'backend', enabled: false, desc: 'Salesforce org auth', meta: 'org id not set' },
+  ];
+
+  function card(m) {
+    return '<div class="card group flex flex-col p-4 transition-all hover:shadow-md ' + (m.enabled ? '' : 'opacity-80') + '" data-m="' + m.id + '">' +
+      '<div class="flex items-start justify-between">' +
+        '<span class="grip [&>svg]:w-4 [&>svg]:h-4 opacity-0 group-hover:opacity-60 -ml-1">' + I('grip') + '</span>' +
+        '<span class="flex h-9 w-9 items-center justify-center rounded-md ' + (m.enabled ? 'bg-primary/12 text-primary' : 'bg-muted text-muted-foreground') + ' [&>svg]:w-[18px] [&>svg]:h-[18px]">' + I(m.icon) + '</span>' +
+        '<div class="ml-auto">' + (m.enabled ? '<span class="badge badge-success">' + I('check') + 'Enabled</span>' : '<span class="badge badge-neutral">Disabled</span>') + '</div>' +
+      '</div>' +
+      '<div class="mt-3 flex items-center gap-2"><h3 class="text-[15px] font-semibold">' + m.name + '</h3>' + (m.prio ? '<span class="badge badge-neutral">#' + m.prio + '</span>' : '') + '</div>' +
+      '<p class="mt-1 text-[13px] text-muted-foreground">' + m.desc + '</p>' +
+      '<p class="mt-3 text-[12px] text-muted-foreground mono truncate">' + m.meta + '</p>' +
+      '<div class="mt-4 flex items-center justify-between border-t border-border pt-3">' +
+        '<button class="switch" role="switch" aria-checked="' + m.enabled + '" data-toggle="' + m.id + '"></button>' +
+        '<button class="btn btn-ghost btn-sm" data-cfg="' + m.id + '">' + I('settings', 'w-4 h-4') + 'Configure</button>' +
+      '</div></div>';
+  }
+  document.getElementById('grid').innerHTML = METHODS.map(card).join('');
+
+  document.getElementById('grid').addEventListener('click', function (e) {
+    var tg = e.target.closest('[data-toggle]');
+    if (tg) { var on = tg.getAttribute('aria-checked') === 'true'; tg.setAttribute('aria-checked', !on); var m = METHODS.find(function (x) { return x.id === tg.dataset.toggle; }); m.enabled = !on; Shell.toast({ title: m.name + (on ? ' disabled' : ' enabled'), tone: on ? 'warning' : 'success' }); return; }
+    var cfg = e.target.closest('[data-cfg]');
+    if (cfg) { var mm = METHODS.find(function (x) { return x.id === cfg.dataset.cfg; }); cfg.dataset.cfg === 'ldap' ? ldapDrawer() : genericDrawer(mm); }
+  });
+
+  function genericDrawer(m) {
+    Shell.drawer({ title: m.name, subtitle: 'Configuration', width: 560,
+      body: '<div class="space-y-4"><div class="rounded-md bg-muted/50 p-3 text-[13px] text-muted-foreground flex gap-2"><span class="[&>svg]:w-4 [&>svg]:h-4 flex-none mt-0.5">' + I('info') + '</span>This method is not yet enabled. Fill in the fields below and toggle it on.</div>' +
+        ['Endpoint / URL', 'Realm / Identifier', 'Client ID', 'Client secret'].map(function (f) { return '<div class="space-y-1.5"><label class="label">' + f + '</label><input class="input ' + (f.indexOf('secret') > -1 ? 'mono' : '') + '" placeholder="' + f + '" type="' + (f.indexOf('secret') > -1 ? 'password' : 'text') + '" /></div>'; }).join('') + '</div>',
+      footer: '<button class="btn btn-outline" data-cancel>Cancel</button><button class="btn btn-primary" data-save>Save &amp; enable</button>',
+      onMount: function (d, close) { d.querySelector('[data-cancel]').addEventListener('click', close); d.querySelector('[data-save]').addEventListener('click', function () { close(); Shell.toast({ title: m.name + ' configured', tone: 'success' }); }); } });
+  }
+
+  function ldapDrawer() {
+    var body =
+      '<div class="space-y-5">' +
+      '<div class="rounded-md border border-success/40 bg-success/[0.06] p-3 flex items-center gap-2.5 text-[13px]"><span class="text-success [&>svg]:w-4 [&>svg]:h-4">' + I('checkcircle') + '</span><span>Last bind test succeeded · 6 minutes ago</span></div>' +
+      sect('Connection', [
+        ['Server URL', '<input class="input mono" value="ldaps://ad.corp.internal:636" />', 'ldaps:// strongly recommended', 'success'],
+        ['Bind DN', '<input class="input mono" value="CN=trino-svc,OU=Service,DC=corp,DC=internal" />'],
+        ['Bind password', '<input class="input mono" type="password" value="••••••••••••" />'],
+      ]) +
+      sect('User search', [
+        ['User base DN', '<input class="input mono" value="OU=Users,DC=corp,DC=internal" />'],
+        ['User search filter', '<input class="input mono" value="(&amp;(objectClass=person)(sAMAccountName={0}))" />'],
+      ]) +
+      sect('Group mapping', [
+        ['Group base DN', '<input class="input mono" value="OU=Groups,DC=corp,DC=internal" />'],
+        ['Group filter', '<input class="input mono" value="(member={0})" />'],
+        ['Name attribute', '<input class="input mono" value="cn" />'],
+      ]) +
+      '<div class="flex items-center justify-between rounded-md border border-border p-3"><div><p class="text-[13px] font-medium">Cache TTL</p><p class="text-[12px] text-muted-foreground">How long to cache directory lookups</p></div><select class="input w-auto"><option>1 hour</option><option>30 min</option><option>15 min</option></select></div>' +
+      '</div>';
+    Shell.drawer({ title: 'LDAP', subtitle: 'Active Directory configuration', width: 600, body: body,
+      footer: '<button class="btn btn-ghost mr-auto" data-test>' + I('play', 'w-4 h-4') + 'Test bind</button><button class="btn btn-outline" data-cancel>Cancel</button><button class="btn btn-primary" data-save>Save changes</button>',
+      onMount: function (d, close) {
+        d.querySelector('[data-cancel]').addEventListener('click', close);
+        d.querySelector('[data-save]').addEventListener('click', function () { close(); Shell.toast({ title: 'LDAP configuration saved', tone: 'success' }); });
+        d.querySelector('[data-test]').addEventListener('click', function () { var b = this; b.disabled = true; b.innerHTML = I('history', 'w-4 h-4 animate-spin') + 'Testing…'; setTimeout(function () { b.disabled = false; b.innerHTML = I('play', 'w-4 h-4') + 'Test bind'; Shell.toast({ title: 'Bind successful', desc: 'Connected · 1,204 users, 27 groups visible', tone: 'success' }); }, 1200); });
+      } });
+  }
+  function sect(title, fields) {
+    return '<section><h3 class="mb-3 text-[13px] font-semibold">' + title + '</h3><div class="space-y-3">' + fields.map(function (f) {
+      return '<div class="space-y-1.5"><label class="label">' + f[0] + '</label>' + f[1] + (f[2] ? '<p class="flex items-center gap-1 text-[12px] text-' + (f[3] || 'muted-foreground') + '">' + (f[3] === 'success' ? I('checkcircle') : '') + f[2] + '</p>' : '') + '</div>';
+    }).join('') + '</div></section>';
+  }
+})();
+</script>
+</body>
+</html>

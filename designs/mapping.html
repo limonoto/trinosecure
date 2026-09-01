@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>User &amp; Group Mapping · Trino-Secure</title>
+<script>document.documentElement.classList.toggle('dark',(localStorage.getItem('ts-theme')||'dark')==='dark');</script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300..700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="assets/tw.js"></script>
+<link rel="stylesheet" href="assets/theme.css" />
+</head>
+<body>
+<template id="page">
+  <div class="mx-auto max-w-[1180px] px-4 py-6 md:px-6 md:py-8">
+    <div id="head"></div>
+
+    <div class="mt-5 seg" id="tabs"><button aria-selected="true" data-t="user">User mapping</button><button aria-selected="false" data-t="group">Group mapping</button></div>
+
+    <div class="card mt-4 flex items-center gap-3 border-info/40 bg-info/[0.06] p-4">
+      <span class="flex h-8 w-8 flex-none items-center justify-center rounded-md bg-info/15 text-info [&>svg]:w-[18px] [&>svg]:h-[18px]" id="ii"></span>
+      <p class="text-[13px] text-muted-foreground" id="hint">Map external principals (Keycloak <span class="mono">sub</span>, X.509 subject, Kerberos) to canonical Trino usernames. Rules are evaluated top-to-bottom; first match wins.</p>
+    </div>
+
+    <div class="mt-4 flex items-center justify-between">
+      <p class="text-[13px] text-muted-foreground">Tester: <span class="mono" id="testin">CN=ava.reyes,OU=Users,DC=corp</span> → <span class="mono text-primary font-medium" id="testout">ava.reyes</span></p>
+      <button class="btn btn-outline btn-sm" id="add" data-i="plus">Add pattern</button>
+    </div>
+
+    <div class="card mt-3 overflow-hidden">
+      <div class="overflow-x-auto"><table class="tbl min-w-[820px]">
+        <thead><tr><th class="w-10"></th><th class="w-12">#</th><th>Match pattern (regex)</th><th>Maps to</th><th class="w-24">Case</th><th class="w-10"></th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table></div>
+    </div>
+  </div>
+</template>
+<script>window.PAGE = { id: 'mapping', title: 'User & Group Mapping' };</script>
+<script src="assets/shell.js"></script>
+<script>
+(function () {
+  var I = Shell.icon;
+  document.getElementById('ii').innerHTML = I('info');
+  document.querySelectorAll('[data-i]').forEach(function (el) { el.innerHTML = I(el.dataset.i) + (el.textContent || ''); });
+  document.getElementById('head').innerHTML = Shell.ui.pageHeader({ title: 'User & Group Mapping', subtitle: 'Translate external identities into the principals and groups your rules reference.' });
+
+  var DATA = {
+    user: [
+      { pat: '(.*?)@corp\\.internal', to: '$1', cs: 'lower' },
+      { pat: 'CN=([^,]+),.*', to: '$1', cs: 'keep' },
+      { pat: 'kerberos/(.*?)@REALM', to: '$1', cs: 'lower' },
+      { pat: 'svc-(.*)', to: 'svc_$1', cs: 'lower' },
+    ],
+    group: [
+      { pat: 'CN=trino-(.*?),OU=Groups.*', to: '$1', cs: 'lower' },
+      { pat: 'role_(.*)', to: '$1', cs: 'lower' },
+      { pat: '.*-admins', to: 'platform-admins', cs: 'keep' },
+    ],
+  };
+  var mode = 'user';
+  var tbody = document.getElementById('rows');
+  function render() {
+    tbody.innerHTML = DATA[mode].map(function (r, i) {
+      return '<tr draggable="true" data-idx="' + i + '" class="row-hover group">' +
+        '<td><span class="grip inline-flex [&>svg]:w-4 [&>svg]:h-4">' + I('grip') + '</span></td>' +
+        '<td><span class="flex h-6 w-6 items-center justify-center rounded-md bg-primary/12 text-primary text-[12px] font-semibold">' + (i + 1) + '</span></td>' +
+        '<td><span class="mono text-[13px]">' + r.pat.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</span></td>' +
+        '<td><span class="mono text-[13px] text-primary">' + r.to + '</span></td>' +
+        '<td><span class="badge badge-neutral">' + r.cs + '</span></td>' +
+        '<td><div class="flex justify-end gap-0.5 opacity-60 group-hover:opacity-100"><button class="btn btn-ghost btn-icon btn-sm" data-edit="' + i + '">' + I('edit', 'w-4 h-4') + '</button><button class="btn btn-ghost btn-icon btn-sm text-destructive" data-del="' + i + '">' + I('trash', 'w-4 h-4') + '</button></div></td></tr>';
+    }).join('');
+    Shell.dragOrder(tbody, function () { Array.from(tbody.children).forEach(function (tr, n) { tr.querySelector('td:nth-child(2) span').textContent = n + 1; }); Shell.toast({ title: 'Mapping order updated', tone: 'info' }); });
+    tbody.querySelectorAll('[data-edit]').forEach(function (b) { b.addEventListener('click', function () { editPat(DATA[mode][+b.dataset.edit]); }); });
+    tbody.querySelectorAll('[data-del]').forEach(function (b) { b.addEventListener('click', function () { Shell.toast({ title: 'Pattern removed', tone: 'destructive' }); }); });
+  }
+  render();
+  document.getElementById('tabs').addEventListener('click', function (e) { var b = e.target.closest('[data-t]'); if (!b) return; mode = b.dataset.t; document.querySelectorAll('[data-t]').forEach(function (x) { x.setAttribute('aria-selected', x === b); }); document.getElementById('hint').innerHTML = mode === 'user' ? 'Map external principals (Keycloak <span class="mono">sub</span>, X.509 subject, Kerberos) to canonical Trino usernames.' : 'Map directory group DNs to the short group names your authorization rules reference.'; document.getElementById('testin').textContent = mode === 'user' ? 'CN=ava.reyes,OU=Users,DC=corp' : 'CN=trino-compliance,OU=Groups'; document.getElementById('testout').textContent = mode === 'user' ? 'ava.reyes' : 'compliance'; render(); });
+
+  function editPat(r) {
+    r = r || { pat: '', to: '', cs: 'lower' };
+    Shell.drawer({ title: 'Mapping pattern', subtitle: mode === 'user' ? 'User mapping' : 'Group mapping', width: 520,
+      body: '<div class="space-y-4">' + Shell.ui.field({ label: 'Match pattern (Java regex)', control: '<input class="input mono" value="' + r.pat.replace(/"/g, '&quot;') + '" placeholder="(.*?)@corp\\.internal" />', hint: 'Capturing groups are available as $1, $2…', state: 'success' }) +
+        Shell.ui.field({ label: 'Maps to', control: '<input class="input mono" value="' + r.to + '" placeholder="$1" />' }) +
+        Shell.ui.field({ label: 'Case handling', control: '<div class="seg w-full"><button aria-selected="' + (r.cs === 'lower') + '" class="flex-1">Lowercase</button><button aria-selected="' + (r.cs === 'keep') + '" class="flex-1">Keep as-is</button></div>' }) +
+        '<div class="rounded-md border border-border p-3"><p class="label mb-2">Live test</p><input class="input mono mb-2" placeholder="Paste a sample principal…" value="CN=ava.reyes,OU=Users,DC=corp" /><div class="flex items-center gap-2 text-[13px]"><span class="text-muted-foreground">Result:</span><span class="mono text-primary font-medium">ava.reyes</span><span class="badge badge-success">' + I('check') + 'matched rule 2</span></div></div></div>',
+      footer: '<button class="btn btn-outline" data-cancel>Cancel</button><button class="btn btn-primary" data-save>Save pattern</button>',
+      onMount: function (d, close) { d.querySelectorAll('.seg button').forEach(function (b) { b.addEventListener('click', function () { d.querySelectorAll('.seg button').forEach(function (x) { x.setAttribute('aria-selected', x === b); }); }); }); d.querySelector('[data-cancel]').addEventListener('click', close); d.querySelector('[data-save]').addEventListener('click', function () { close(); Shell.toast({ title: 'Pattern saved', tone: 'success' }); }); } });
+  }
+  document.getElementById('add').addEventListener('click', function () { editPat(null); });
+})();
+</script>
+</body>
+</html>

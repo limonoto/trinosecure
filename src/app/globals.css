@@ -1,0 +1,178 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* Single dark theme: `dark` is always on <html>, so shadcn/ui's `dark:` variants
+   layer on top of our dark token values. */
+@custom-variant dark (&:is(.dark *));
+
+/* ──────────────────────────────────────────────────────────────────────────
+   NİZAM — single dark theme.
+   shadcn/ui components read these tokens via @theme inline below. Only a few
+   thin helper classes remain (.btn/.card/.eyebrow/.mono/.tabular) for static
+   server-rendered fragments; all interactive UI uses shadcn components.
+   ────────────────────────────────────────────────────────────────────────── */
+:root {
+  --background: 222 22% 7%;
+  --foreground: 210 16% 90%;
+  --card: 222 18% 10%;
+  --card-foreground: 210 16% 90%;
+  --popover: 222 20% 9%;
+  --popover-foreground: 210 16% 90%;
+  --primary: 172 66% 45%;
+  --primary-foreground: 200 45% 6%;
+  --secondary: 220 14% 16%;
+  --secondary-foreground: 210 16% 90%;
+  --muted: 220 14% 14%;
+  --muted-foreground: 218 11% 58%;
+  --accent: 220 14% 17%;
+  --accent-foreground: 172 60% 62%;
+  --destructive: 0 70% 56%;
+  --destructive-foreground: 0 0% 100%;
+  --success: 152 56% 47%;
+  --success-foreground: 150 40% 8%;
+  --warning: 38 92% 56%;
+  --warning-foreground: 40 60% 8%;
+  --info: 199 88% 57%;
+  --info-foreground: 200 40% 8%;
+  --border: 220 13% 18%;
+  --input: 220 13% 22%;
+  --ring: 172 66% 45%;
+  --shadow-color: 222 60% 2%;
+  --radius: 0.5rem;
+}
+
+/* Expose tokens as Tailwind utilities (shadcn-aligned). */
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-success: hsl(var(--success));
+  --color-success-foreground: hsl(var(--success-foreground));
+  --color-warning: hsl(var(--warning));
+  --color-warning-foreground: hsl(var(--warning-foreground));
+  --color-info: hsl(var(--info));
+  --color-info-foreground: hsl(var(--info-foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+@layer base {
+  * {
+    border-color: hsl(var(--border));
+  }
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+    font-feature-settings: "cv05" 1, "cv09" 1, "ss01" 1;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+  button:focus:not(:focus-visible) {
+    outline: none;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 8px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.5);
+    background-clip: content-box;
+  }
+}
+
+/* ──────── Thin helpers for static server-rendered fragments (not components) ──────── */
+@layer components {
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    white-space: nowrap;
+    border-radius: var(--radius);
+    font-size: 0.875rem;
+    font-weight: 500;
+    height: 2.25rem;
+    padding: 0 0.875rem;
+    transition: background-color 0.15s, color 0.15s, opacity 0.15s;
+    cursor: pointer;
+    user-select: none;
+  }
+  .btn:disabled {
+    opacity: 0.5;
+    pointer-events: none;
+  }
+  .btn svg {
+    width: 1rem;
+    height: 1rem;
+    flex: none;
+  }
+  .btn-sm {
+    height: 1.875rem;
+    padding: 0 0.625rem;
+    font-size: 0.8125rem;
+  }
+  .btn-lg {
+    height: 2.625rem;
+    padding: 0 1.25rem;
+  }
+  .btn-primary {
+    background: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
+  }
+  .btn-primary:hover {
+    background: hsl(var(--primary) / 0.9);
+  }
+
+  .card {
+    background: hsl(var(--card));
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius);
+  }
+
+  .eyebrow {
+    font-size: 0.7rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    font-weight: 600;
+    color: hsl(var(--muted-foreground));
+  }
+  .mono {
+    font-family: var(--font-geist-mono), ui-monospace, monospace;
+  }
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}

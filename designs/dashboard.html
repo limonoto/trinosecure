@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Dashboard · Trino-Secure</title>
+<script>document.documentElement.classList.toggle('dark',(localStorage.getItem('ts-theme')||'dark')==='dark');</script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300..700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="assets/tw.js"></script>
+<link rel="stylesheet" href="assets/theme.css" />
+</head>
+<body>
+<template id="page">
+  <div class="mx-auto max-w-[1240px] px-4 py-6 md:px-6 md:py-8">
+
+    <!-- header -->
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="eyebrow mb-1">Production · trino.prod.internal</p>
+        <h1 class="text-2xl font-semibold tracking-tight">Security overview</h1>
+        <p class="mt-1 text-sm text-muted-foreground">Last validated 6 minutes ago · config revision <span class="mono">v142</span></p>
+      </div>
+      <div class="flex items-center gap-2">
+        <button class="btn btn-outline btn-sm" id="qa-validate"><span data-i="check"></span>Validate config</button>
+        <button class="btn btn-primary btn-sm" id="qa-publish"><span data-i="rocket"></span>Publish changes</button>
+      </div>
+    </div>
+
+    <!-- drift banner -->
+    <div class="card mt-6 flex flex-col gap-3 border-warning/40 bg-warning/[0.06] p-4 sm:flex-row sm:items-center">
+      <div class="flex flex-1 items-start gap-3">
+        <span class="mt-0.5 flex h-8 w-8 flex-none items-center justify-center rounded-md bg-warning/15 text-warning [&>svg]:w-[18px] [&>svg]:h-[18px]" data-i="drift"></span>
+        <div>
+          <p class="text-sm font-semibold">Drift detected on Production</p>
+          <p class="mt-0.5 text-[13px] text-muted-foreground">The deployed <span class="mono">rules.json</span> differs from the published revision in <span class="font-medium text-foreground">2 rules</span>. Live config was last refreshed 6m ago.</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-2 sm:flex-none">
+        <a href="import-diff.html" class="btn btn-ghost btn-sm">Review diff</a>
+        <a href="version-history.html" class="btn btn-outline btn-sm">Reconcile</a>
+      </div>
+    </div>
+
+    <!-- stat cards -->
+    <div class="mt-6 grid grid-cols-2 gap-4 lg:grid-cols-4" id="stats"></div>
+
+    <div class="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
+      <!-- recent activity -->
+      <section class="card lg:col-span-2">
+        <div class="flex items-center justify-between border-b border-border px-5 py-3.5">
+          <h2 class="text-sm font-semibold">Recent activity</h2>
+          <a href="audit-log.html" class="text-[13px] font-medium text-primary hover:underline">View audit log</a>
+        </div>
+        <ol id="feed" class="divide-y divide-border"></ol>
+      </section>
+
+      <!-- right column -->
+      <div class="flex flex-col gap-6">
+        <!-- validation status -->
+        <section class="card p-5">
+          <h2 class="text-sm font-semibold">Validation</h2>
+          <div class="mt-4 space-y-3" id="valid"></div>
+        </section>
+
+        <!-- quick actions -->
+        <section class="card p-5">
+          <h2 class="text-sm font-semibold">Quick actions</h2>
+          <div class="mt-3 grid grid-cols-1 gap-2" id="quick"></div>
+        </section>
+      </div>
+    </div>
+
+    <!-- environments summary -->
+    <section class="card mt-6">
+      <div class="flex items-center justify-between border-b border-border px-5 py-3.5">
+        <h2 class="text-sm font-semibold">Environments</h2>
+        <a href="environments.html" class="text-[13px] font-medium text-primary hover:underline">Manage</a>
+      </div>
+      <div class="grid grid-cols-1 divide-y divide-border md:grid-cols-3 md:divide-x md:divide-y-0" id="envgrid"></div>
+    </section>
+
+  </div>
+</template>
+
+<script>window.PAGE = { id: 'dashboard', title: 'Dashboard' };</script>
+<script src="assets/shell.js"></script>
+<script>
+(function () {
+  var I = Shell.icon;
+  document.querySelectorAll('[data-i]').forEach(function (el) { el.innerHTML = I(el.dataset.i); });
+
+  // stat cards
+  var stats = [
+    { label: 'Authorization rules', value: 84, sub: '6 drafts · 2 invalid', icon: 'shield', tone: 'primary', href: 'rules-workspace.html' },
+    { label: 'Groups', value: 27, sub: '412 members mapped', icon: 'users', tone: 'info', href: 'groups.html' },
+    { label: 'Auth methods', value: 3, sub: 'LDAP · OAuth · Password', icon: 'key', tone: 'success', href: 'auth-methods.html' },
+    { label: 'Certificates', value: 5, sub: '1 expires in 19 days', icon: 'cert', tone: 'warning', href: 'certificates.html' },
+  ];
+  document.getElementById('stats').innerHTML = stats.map(function (s) {
+    return '<a href="' + s.href + '" class="card group p-4 transition-all hover:-translate-y-0.5 hover:shadow-md">' +
+      '<div class="flex items-start justify-between">' +
+        '<span class="flex h-9 w-9 items-center justify-center rounded-md bg-' + s.tone + '/12 text-' + s.tone + ' [&>svg]:w-[18px] [&>svg]:h-[18px]">' + I(s.icon) + '</span>' +
+        '<span class="text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 [&>svg]:w-4 [&>svg]:h-4">' + I('chevronr') + '</span>' +
+      '</div>' +
+      '<div class="mt-3 text-3xl font-semibold tracking-tight tabular">' + s.value + '</div>' +
+      '<div class="mt-0.5 text-[13px] font-medium">' + s.label + '</div>' +
+      '<div class="mt-1 text-[12px] text-muted-foreground">' + s.sub + '</div></a>';
+  }).join('');
+
+  // feed
+  var feed = [
+    { who: 'Ava Reyes', init: 'AR', act: 'published revision', tgt: 'v142', detail: '12 rule changes · Production', time: '6m ago', tone: 'primary', icon: 'rocket' },
+    { who: 'Marco Vidal', init: 'MV', act: 'edited table rule', tgt: 'pii.customers', detail: 'Restricted SELECT to compliance group', time: '40m ago', tone: 'info', icon: 'edit' },
+    { who: 'System', init: 'SY', act: 'detected drift on', tgt: 'Production', detail: '2 rules differ from published config', time: '1h ago', tone: 'warning', icon: 'drift' },
+    { who: 'Priya Nair', init: 'PN', act: 'added group', tgt: 'fraud-investigators', detail: '8 members imported from LDAP', time: '3h ago', tone: 'success', icon: 'users' },
+    { who: 'Marco Vidal', init: 'MV', act: 'failed validation on', tgt: 'ledger.* rule', detail: 'Unknown privilege "WRITE"', time: '5h ago', tone: 'destructive', icon: 'alert' },
+    { who: 'Ava Reyes', init: 'AR', act: 'rotated certificate', tgt: 'trino-internal.pem', detail: 'New expiry 2027-04-02', time: 'Yesterday', tone: 'info', icon: 'cert' },
+  ];
+  document.getElementById('feed').innerHTML = feed.map(function (f) {
+    return '<li class="flex items-center gap-3 px-5 py-3.5">' +
+      '<span class="relative flex h-8 w-8 flex-none items-center justify-center rounded-full bg-muted text-[11px] font-semibold">' + f.init +
+        '<span class="absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-card text-' + f.tone + ' [&>svg]:w-2.5 [&>svg]:h-2.5">' + I(f.icon) + '</span></span>' +
+      '<div class="min-w-0 flex-1"><p class="text-[13px] leading-snug"><span class="font-medium">' + f.who + '</span> <span class="text-muted-foreground">' + f.act + '</span> <span class="mono font-medium">' + f.tgt + '</span></p>' +
+        '<p class="truncate text-[12px] text-muted-foreground">' + f.detail + '</p></div>' +
+      '<time class="flex-none text-[12px] text-muted-foreground whitespace-nowrap">' + f.time + '</time></li>';
+  }).join('');
+
+  // validation checklist
+  var valid = [
+    { label: 'Schema valid', state: 'ok', note: 'rules.json conforms' },
+    { label: '2 invalid rules', state: 'err', note: 'Unknown privilege, bad regex' },
+    { label: 'Drift on Production', state: 'warn', note: '2 rules out of sync' },
+    { label: 'TLS enabled', state: 'ok', note: 'HTTPS on 8443' },
+  ];
+  var sc = { ok: ['success', 'checkcircle'], warn: ['warning', 'alert'], err: ['destructive', 'alert'] };
+  document.getElementById('valid').innerHTML = valid.map(function (v) {
+    var m = sc[v.state];
+    return '<div class="flex items-start gap-3"><span class="mt-0.5 text-' + m[0] + ' [&>svg]:w-4 [&>svg]:h-4">' + I(m[1]) + '</span>' +
+      '<div class="min-w-0"><p class="text-[13px] font-medium leading-tight">' + v.label + '</p><p class="text-[12px] text-muted-foreground">' + v.note + '</p></div></div>';
+  }).join('');
+
+  // quick actions
+  var quick = [
+    { label: 'Add authorization rule', icon: 'plus', href: 'rules-workspace.html' },
+    { label: 'Import rules.json', icon: 'upload', href: 'import-diff.html' },
+    { label: 'Check effective permissions', icon: 'tree', href: 'effective-permissions.html' },
+    { label: 'Manage groups', icon: 'users', href: 'groups.html' },
+  ];
+  document.getElementById('quick').innerHTML = quick.map(function (q) {
+    return '<a href="' + q.href + '" class="flex items-center gap-3 rounded-md border border-border px-3 py-2.5 text-[13px] font-medium transition-colors hover:bg-accent hover:text-accent-foreground">' +
+      '<span class="text-muted-foreground [&>svg]:w-4 [&>svg]:h-4">' + I(q.icon) + '</span>' + q.label +
+      '<span class="ml-auto text-muted-foreground [&>svg]:w-4 [&>svg]:h-4">' + I('chevronr') + '</span></a>';
+  }).join('');
+
+  // env grid
+  var envs = [
+    { name: 'Production', sub: 'trino.prod.internal', tone: 'destructive', mode: 'HTTP-served', rules: 84, status: 'Drift detected', sbadge: 'warning' },
+    { name: 'Staging', sub: 'trino.stg.internal', tone: 'warning', mode: 'File-write', rules: 80, status: 'In sync', sbadge: 'success' },
+    { name: 'Development', sub: 'trino.dev.internal', tone: 'info', mode: 'File-write', rules: 61, status: 'In sync', sbadge: 'success' },
+  ];
+  document.getElementById('envgrid').innerHTML = envs.map(function (e) {
+    return '<div class="p-5"><div class="flex items-center gap-2"><span class="dot bg-' + e.tone + '"></span><span class="text-sm font-semibold">' + e.name + '</span>' +
+      '<span class="badge badge-' + e.sbadge + ' ml-auto">' + e.status + '</span></div>' +
+      '<p class="mt-1 text-[12px] text-muted-foreground mono">' + e.sub + '</p>' +
+      '<dl class="mt-4 space-y-2 text-[13px]">' +
+        '<div class="flex justify-between"><dt class="text-muted-foreground">Delivery mode</dt><dd class="font-medium">' + e.mode + '</dd></div>' +
+        '<div class="flex justify-between"><dt class="text-muted-foreground">Active rules</dt><dd class="font-medium tabular">' + e.rules + '</dd></div>' +
+      '</dl></div>';
+  }).join('');
+
+  // quick action handlers
+  document.getElementById('qa-validate').addEventListener('click', function () {
+    Shell.toast({ title: 'Validation complete', desc: '82 of 84 rules valid · 2 errors found', tone: 'warning' });
+  });
+  document.getElementById('qa-publish').addEventListener('click', function () {
+    Shell.confirm({
+      title: 'Publish to Production?', tone: 'warning', icon: 'rocket', okText: 'Continue to publish',
+      subtitle: 'This will deploy 12 rule changes to <b>trino.prod.internal</b>. Review the diff on the publish screen before confirming.',
+      onConfirm: function () { window.location.href = 'rules-workspace.html'; },
+    });
+  });
+})();
+</script>
+</body>
+</html>

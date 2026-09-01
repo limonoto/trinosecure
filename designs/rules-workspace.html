@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Rules Workspace · Trino-Secure</title>
+<script>document.documentElement.classList.toggle('dark',(localStorage.getItem('ts-theme')||'dark')==='dark');</script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300..700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="assets/tw.js"></script>
+<link rel="stylesheet" href="assets/theme.css" />
+</head>
+<body>
+<template id="page">
+  <div class="mx-auto max-w-[1320px] px-4 py-6 md:px-6 md:py-7">
+
+    <!-- header + toolbar -->
+    <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+      <div>
+        <div class="flex items-center gap-2.5">
+          <h1 class="text-2xl font-semibold tracking-tight">Rules Workspace</h1>
+          <span class="badge badge-warning" id="dirty-badge" data-i-pre="edit">3 unpublished</span>
+        </div>
+        <p class="mt-1 text-sm text-muted-foreground">Authorization rules for <span class="mono">rules.json</span> · evaluated top-to-bottom, <span class="font-medium text-foreground">first match wins</span>.</p>
+      </div>
+      <div class="flex flex-wrap items-center gap-2">
+        <a href="version-history.html" class="btn btn-ghost btn-sm" data-i="history">History</a>
+        <a href="import-diff.html" class="btn btn-outline btn-sm" data-i="upload">Import</a>
+        <button class="btn btn-outline btn-sm" id="btn-validate" data-i="check">Validate</button>
+        <button class="btn btn-outline btn-sm" id="btn-add" data-i="plus">Add rule</button>
+        <button class="btn btn-primary btn-sm" id="btn-publish" data-i="rocket">Publish</button>
+      </div>
+    </div>
+
+    <!-- validation summary strip -->
+    <div class="card mt-5 flex flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3" id="vstrip"></div>
+
+    <!-- rule-type tabs -->
+    <div class="mt-5 flex items-center gap-1 overflow-x-auto border-b border-border" id="tabs"></div>
+
+    <!-- toolbar: search + filters -->
+    <div class="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div class="relative max-w-xs flex-1">
+        <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground [&>svg]:w-4 [&>svg]:h-4" data-i="search"></span>
+        <input id="search" class="input pl-9" placeholder="Filter by user, group, catalog…" />
+      </div>
+      <div class="flex items-center gap-2 text-[13px] text-muted-foreground">
+        <span data-i="info" class="[&>svg]:w-4 [&>svg]:h-4"></span>
+        Drag <span data-i="grip" class="[&>svg]:w-4 [&>svg]:h-4 inline-flex"></span> to reorder evaluation priority
+      </div>
+    </div>
+
+    <!-- rules table -->
+    <div class="card mt-3 overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="tbl min-w-[920px]">
+          <thead>
+            <tr>
+              <th class="w-10"></th>
+              <th class="w-14">Order</th>
+              <th>Identity</th>
+              <th>Resource</th>
+              <th>Access</th>
+              <th>Status</th>
+              <th class="w-10"></th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+      <div class="flex items-center justify-between border-t border-border px-4 py-2.5 text-[12px] text-muted-foreground">
+        <span id="count"></span>
+        <span class="flex items-center gap-1.5"><span class="dot bg-success"></span>Rules above match first · unmatched access is <span class="font-medium text-foreground">denied by default</span></span>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script>window.PAGE = { id: 'rules', title: 'Rules Workspace' };</script>
+<script src="assets/shell.js"></script>
+<script>
+(function () {
+  var I = Shell.icon;
+  document.querySelectorAll('[data-i]').forEach(function (el) { el.innerHTML = I(el.dataset.i) + (el.textContent || ''); });
+  document.querySelectorAll('[data-i-pre]').forEach(function (el) { el.innerHTML = I(el.dataset.iPre) + el.textContent; });
+
+  var TYPES = [
+    { id: 'table', label: 'Table', n: 31 }, { id: 'schema', label: 'Schema', n: 14 },
+    { id: 'catalog', label: 'Catalog', n: 9 }, { id: 'query', label: 'Query', n: 6 },
+    { id: 'session', label: 'System Session', n: 4 }, { id: 'impersonation', label: 'Impersonation', n: 3 },
+    { id: 'function', label: 'Functions', n: 5 },
+  ];
+
+  var RULES = [
+    { grp: 'platform-admins', user: '.*', cat: 'system', sch: '.*', tbl: '.*', priv: ['ALL'], allow: true, status: 'Published', cols: 'all', mask: 0, filter: false },
+    { grp: 'compliance', user: '.*', cat: 'pii', sch: 'restricted', tbl: 'customers', priv: ['SELECT'], allow: true, status: 'Valid', cols: 'restricted', mask: 3, filter: true },
+    { role: 'fraud_investigator', grp: 'fraud-investigators', cat: 'transactions', sch: 'gold', tbl: 'payments', priv: ['SELECT'], allow: true, status: 'Published', cols: 'all', mask: 1, filter: true },
+    { grp: 'analysts', user: '.*', cat: 'analytics', sch: '.*', tbl: '.*', priv: ['SELECT'], allow: true, status: 'Published', cols: 'all', mask: 0, filter: false },
+    { grp: 'data-engineers', cat: 'ledger', sch: 'staging', tbl: '.*', priv: ['SELECT', 'INSERT', 'DELETE'], allow: true, status: 'Draft', cols: 'all', mask: 0, filter: false },
+    { grp: 'analysts', user: '.*', cat: 'pii', sch: '.*', tbl: '.*', priv: [], allow: false, status: 'Published', cols: 'all', mask: 0, filter: false },
+    { grp: 'contractors', cat: 'ledger', sch: 'gold', tbl: 'balances', priv: ['WRITE'], allow: true, status: 'Invalid', cols: 'all', mask: 0, filter: false, err: 'Unknown privilege "WRITE"' },
+    { grp: 'service-etl', user: 'svc_etl', cat: 'transactions', sch: '.*', tbl: '[a-z_', priv: ['SELECT', 'INSERT'], allow: true, status: 'Invalid', cols: 'all', mask: 0, filter: false, err: 'Invalid regex in table pattern' },
+    { grp: 'everyone', user: '.*', cat: '.*', sch: '.*', tbl: '.*', priv: [], allow: false, status: 'Published', cols: 'all', mask: 0, filter: false, fallback: true },
+  ];
+
+  // tabs
+  document.getElementById('tabs').innerHTML = TYPES.map(function (t, i) {
+    return '<button data-tab="' + t.id + '" aria-selected="' + (i === 0) + '" class="relative whitespace-nowrap px-3.5 py-2.5 text-[13px] font-medium transition-colors aria-selected:text-foreground text-muted-foreground hover:text-foreground">' +
+      t.label + ' <span class="ml-1 rounded-full bg-muted px-1.5 py-0.5 text-[11px] tabular">' + t.n + '</span>' +
+      '<span class="tab-ind absolute inset-x-2 -bottom-px h-0.5 rounded bg-primary ' + (i === 0 ? '' : 'hidden') + '"></span></button>';
+  }).join('');
+  document.getElementById('tabs').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-tab]'); if (!b) return;
+    document.querySelectorAll('[data-tab]').forEach(function (x) { x.setAttribute('aria-selected', x === b); x.querySelector('.tab-ind').classList.toggle('hidden', x !== b); });
+    if (b.dataset.tab !== 'table') Shell.toast({ title: 'Showing Table rules', desc: 'Other rule types share the same editor — demo focuses on Table rules.', tone: 'info' });
+  });
+
+  // validation strip
+  function vstrip() {
+    var valid = RULES.filter(function (r) { return r.status === 'Valid' || r.status === 'Published'; }).length;
+    var invalid = RULES.filter(function (r) { return r.status === 'Invalid'; }).length;
+    var draft = RULES.filter(function (r) { return r.status === 'Draft'; }).length;
+    document.getElementById('vstrip').innerHTML =
+      '<div class="flex items-center gap-2"><span class="text-success [&>svg]:w-[18px] [&>svg]:h-[18px]">' + I('checkcircle') + '</span><span class="text-[13px]"><span class="font-semibold tabular">' + valid + '</span> <span class="text-muted-foreground">valid</span></span></div>' +
+      '<div class="flex items-center gap-2"><span class="text-destructive [&>svg]:w-[18px] [&>svg]:h-[18px]">' + I('alert') + '</span><span class="text-[13px]"><span class="font-semibold tabular">' + invalid + '</span> <span class="text-muted-foreground">invalid</span></span></div>' +
+      '<div class="flex items-center gap-2"><span class="text-muted-foreground [&>svg]:w-[18px] [&>svg]:h-[18px]">' + I('edit') + '</span><span class="text-[13px]"><span class="font-semibold tabular">' + draft + '</span> <span class="text-muted-foreground">draft</span></span></div>' +
+      '<div class="ml-auto flex items-center gap-2 text-[13px] text-muted-foreground"><span class="[&>svg]:w-4 [&>svg]:h-4">' + I('clock') + '</span>Last validated 6m ago</div>';
+  }
+  vstrip();
+
+  function privBadges(r) {
+    if (!r.allow) return '<span class="badge badge-destructive">' + I('x') + 'Deny</span>';
+    if (r.priv.indexOf('ALL') > -1) return '<span class="badge badge-primary">' + I('check') + 'ALL privileges</span>';
+    if (!r.priv.length) return '<span class="badge badge-destructive">' + I('x') + 'Deny</span>';
+    return r.priv.map(function (p) { return '<span class="badge badge-neutral">' + p + '</span>'; }).join(' ');
+  }
+
+  function rowHtml(r, i) {
+    var identity = r.role
+      ? '<span class="mono text-foreground">role:</span> <span class="mono">' + r.role + '</span>'
+      : (r.grp ? '<span class="mono text-muted-foreground">group:</span> <span class="mono">' + r.grp + '</span>' : '');
+    var sub = r.user && r.user !== '.*' ? '<span class="mono text-muted-foreground">user:</span> <span class="mono">' + r.user + '</span>' : (r.user === '.*' ? '<span class="text-muted-foreground">any user</span>' : '');
+    var res = '<span class="mono">' + r.cat + '</span><span class="text-muted-foreground">.</span><span class="mono">' + (r.sch || '*') + '</span><span class="text-muted-foreground">.</span><span class="mono">' + (r.tbl || '*') + '</span>';
+    var extras = [];
+    if (r.mask) extras.push('<span class="badge badge-info">' + r.mask + ' mask' + (r.mask > 1 ? 's' : '') + '</span>');
+    if (r.filter) extras.push('<span class="badge badge-info">row filter</span>');
+    if (r.cols === 'restricted') extras.push('<span class="badge badge-warning">column-limited</span>');
+
+    return '<tr draggable="true" data-idx="' + i + '" class="row-hover group cursor-default ' + (r.fallback ? 'bg-muted/30' : '') + '">' +
+      '<td><span class="grip inline-flex [&>svg]:w-4 [&>svg]:h-4">' + I('grip') + '</span></td>' +
+      '<td><span class="flex h-6 w-6 items-center justify-center rounded-md ' + (r.fallback ? 'bg-muted text-muted-foreground' : 'bg-primary/12 text-primary') + ' text-[12px] font-semibold tabular">' + (i + 1) + '</span></td>' +
+      '<td><div class="text-[13px] leading-tight">' + identity + '</div>' + (sub ? '<div class="mt-0.5 text-[12px] leading-tight">' + sub + '</div>' : '') + (r.fallback ? '<div class="mt-0.5 text-[11px] text-muted-foreground italic">default fallback</div>' : '') + '</td>' +
+      '<td><div class="text-[13px]">' + res + '</div>' + (extras.length ? '<div class="mt-1 flex flex-wrap gap-1">' + extras.join('') + '</div>' : '') + '</td>' +
+      '<td><div class="flex flex-wrap gap-1">' + privBadges(r) + '</div></td>' +
+      '<td>' + Shell.badge(r.status) + (r.err ? '<div class="mt-1 flex items-center gap-1 text-[11px] text-destructive">' + I('alert') + r.err + '</div>' : '') + '</td>' +
+      '<td><div class="flex items-center justify-end gap-0.5 opacity-60 transition-opacity group-hover:opacity-100">' +
+        '<button data-edit="' + i + '" class="btn btn-ghost btn-icon btn-sm" title="Edit">' + I('edit', 'w-4 h-4') + '</button>' +
+        '<button data-menu="' + i + '" class="btn btn-ghost btn-icon btn-sm" title="More">' + I('dots', 'w-4 h-4') + '</button>' +
+      '</div></td></tr>';
+  }
+
+  var tbody = document.getElementById('rows');
+  function render(filter) {
+    filter = (filter || '').toLowerCase();
+    tbody.innerHTML = RULES.map(function (r, i) {
+      var hay = [r.grp, r.role, r.user, r.cat, r.sch, r.tbl].join(' ').toLowerCase();
+      if (filter && hay.indexOf(filter) < 0) return '';
+      return rowHtml(r, i);
+    }).join('');
+    document.getElementById('count').textContent = RULES.length + ' rules · order is significant';
+    Shell.dragOrder(tbody, function (from, to) {
+      // reflect order numbers
+      Array.from(tbody.children).forEach(function (tr, n) {
+        var badge = tr.querySelector('td:nth-child(2) span'); badge.textContent = n + 1;
+      });
+      Shell.toast({ title: 'Evaluation order updated', desc: 'Rule moved to position ' + (to + 1) + '. Re-validate before publishing.', tone: 'info' });
+      document.getElementById('dirty-badge').innerHTML = I('edit') + '4 unpublished';
+    });
+    tbody.querySelectorAll('[data-edit]').forEach(function (b) { b.addEventListener('click', function () { openEditor(RULES[+b.dataset.edit], +b.dataset.edit); }); });
+    tbody.querySelectorAll('[data-menu]').forEach(function (b) { b.addEventListener('click', function (e) { rowMenu(e, +b.dataset.menu); }); });
+    tbody.querySelectorAll('tr').forEach(function (tr) { tr.addEventListener('dblclick', function () { openEditor(RULES[+tr.dataset.idx], +tr.dataset.idx); }); });
+  }
+  render();
+
+  document.getElementById('search').addEventListener('input', function (e) { render(e.target.value); });
+
+  function rowMenu(e, i) {
+    e.stopPropagation();
+    var existing = document.getElementById('rowmenu'); if (existing) existing.remove();
+    var m = document.createElement('div'); m.id = 'rowmenu';
+    m.className = 'fixed z-[80] w-44 rounded-md border border-border bg-popover p-1 shadow-lg animate-scale-in';
+    m.style.left = Math.min(e.clientX, window.innerWidth - 190) + 'px'; m.style.top = e.clientY + 'px';
+    var item = function (ic, lbl, cls) { return '<button class="' + (cls || '') + ' flex w-full items-center gap-2.5 rounded-sm px-2.5 py-1.5 text-left text-[13px] hover:bg-accent [&>svg]:w-4 [&>svg]:h-4">' + I(ic) + lbl + '</button>'; };
+    m.innerHTML = item('edit', 'Edit rule') + item('check', 'Validate') + item('layers', 'Duplicate') +
+      '<div class="my-1 h-px bg-border"></div>' + item('trash', 'Delete', 'text-destructive');
+    document.body.appendChild(m);
+    m.addEventListener('click', function (ev) {
+      var lbl = ev.target.closest('button'); if (!lbl) return; m.remove();
+      if (lbl.textContent === 'Edit rule') openEditor(RULES[i], i);
+      else if (lbl.textContent === 'Delete') Shell.confirm({ title: 'Delete this rule?', subtitle: 'It will be removed from the draft. You can restore it from version history before publishing.', okText: 'Delete rule', onConfirm: function () { Shell.toast({ title: 'Rule deleted', tone: 'destructive' }); } });
+      else Shell.toast({ title: lbl.textContent + ' — done', tone: 'success' });
+    });
+    setTimeout(function () { document.addEventListener('click', function close() { m.remove(); document.removeEventListener('click', close); }); }, 0);
+  }
+
+  /* ---------- Rule Editor drawer ---------- */
+  function field(label, inner, hint, tone) {
+    return '<div class="space-y-1.5"><label class="label">' + label + '</label>' + inner +
+      (hint ? '<p class="flex items-center gap-1 text-[12px] text-' + (tone || 'muted-foreground') + '">' + (tone ? I(tone === 'success' ? 'checkcircle' : 'alert') : '') + hint + '</p>' : '') + '</div>';
+  }
+  function openEditor(r, idx) {
+    r = r || { cat: '', sch: '', tbl: '', priv: ['SELECT'], allow: true };
+    var isNew = idx == null;
+    var privList = ['SELECT', 'INSERT', 'DELETE', 'UPDATE', 'OWNERSHIP', 'GRANT_SELECT'];
+    var body =
+      '<div class="space-y-6">' +
+      '<section><div class="mb-3 flex items-center gap-2"><span class="flex h-6 w-6 items-center justify-center rounded bg-primary/12 text-primary text-[11px] font-bold">1</span><h3 class="text-[13px] font-semibold">Identity match</h3><span class="text-[12px] text-muted-foreground">regex, matched against the requesting principal</span></div>' +
+        '<div class="grid grid-cols-3 gap-3">' +
+          field('User', '<input class="input mono" value="' + (r.user || '.*') + '" placeholder=".*" />') +
+          field('Group', '<input class="input mono" value="' + (r.grp || '') + '" placeholder="analysts" />') +
+          field('Role', '<input class="input mono" value="' + (r.role || '') + '" placeholder="(optional)" />') +
+        '</div></section>' +
+      '<section><div class="mb-3 flex items-center gap-2"><span class="flex h-6 w-6 items-center justify-center rounded bg-primary/12 text-primary text-[11px] font-bold">2</span><h3 class="text-[13px] font-semibold">Resource</h3></div>' +
+        '<div class="grid grid-cols-3 gap-3">' +
+          field('Catalog', '<input id="f-cat" class="input mono" value="' + r.cat + '" placeholder="transactions" />') +
+          field('Schema', '<input class="input mono" value="' + (r.sch || '') + '" placeholder=".*" />') +
+          field('Table', '<input id="f-tbl" class="input mono ' + (r.err && r.err.indexOf('regex') > -1 ? 'input-invalid' : '') + '" value="' + (r.tbl || '') + '" placeholder=".*" />', r.err && r.err.indexOf('regex') > -1 ? 'Unterminated character class' : 'Valid pattern', r.err && r.err.indexOf('regex') > -1 ? 'destructive' : 'success') +
+        '</div></section>' +
+      '<section><div class="mb-3 flex items-center gap-2"><span class="flex h-6 w-6 items-center justify-center rounded bg-primary/12 text-primary text-[11px] font-bold">3</span><h3 class="text-[13px] font-semibold">Privileges</h3></div>' +
+        '<div class="mb-3 seg"><button aria-selected="' + (r.allow ? 'true' : 'false') + '" data-allow="1">Allow</button><button aria-selected="' + (!r.allow ? 'true' : 'false') + '" data-allow="0">Deny</button></div>' +
+        '<div class="grid grid-cols-2 gap-2.5">' + privList.map(function (p) {
+          return '<label class="flex items-center gap-2.5 rounded-md border border-border px-3 py-2 text-[13px] transition-colors hover:bg-accent/60"><input type="checkbox" class="chk" ' + (r.priv.indexOf(p) > -1 ? 'checked' : '') + ' /><span class="mono">' + p + '</span></label>';
+        }).join('') + '</div></section>' +
+      '<section><div class="mb-3 flex items-center gap-2"><span class="flex h-6 w-6 items-center justify-center rounded bg-primary/12 text-primary text-[11px] font-bold">4</span><h3 class="text-[13px] font-semibold">Column access &amp; masks</h3></div>' +
+        '<div class="rounded-md border border-border divide-y divide-border">' +
+          ['account_id · visible', 'card_number · mask: last4', 'ssn · mask: hash', 'balance · visible', 'email · mask: domain-only'].map(function (c, n) {
+            var masked = c.indexOf('mask') > -1;
+            return '<div class="flex items-center justify-between px-3 py-2 text-[13px]"><span class="mono">' + c.split(' · ')[0] + '</span>' +
+              '<span class="badge ' + (masked ? 'badge-info' : 'badge-neutral') + '">' + (masked ? I('secret') : I('eye')) + c.split(' · ')[1] + '</span></div>';
+          }).join('') + '</div></section>' +
+      '<section><div class="mb-3 flex items-center gap-2"><span class="flex h-6 w-6 items-center justify-center rounded bg-primary/12 text-primary text-[11px] font-bold">5</span><h3 class="text-[13px] font-semibold">Row filter</h3><span class="text-[12px] text-muted-foreground">SQL predicate appended to every query</span></div>' +
+        '<textarea class="input mono text-[13px]" rows="2" placeholder="region = current_user_region()">' + (r.filter ? "region IN (SELECT region FROM directory.user_regions WHERE principal = current_user)" : '') + '</textarea></section>' +
+      '</div>';
+
+    var footer = (isNew ? '' : '<button class="btn btn-ghost text-destructive mr-auto" data-del>' + I('trash', 'w-4 h-4') + 'Delete</button>') +
+      '<button class="btn btn-outline" data-cancel>Cancel</button>' +
+      '<button class="btn btn-secondary" data-draft>Save as draft</button>' +
+      '<button class="btn btn-primary" data-save>' + I('check', 'w-4 h-4') + 'Save &amp; validate</button>';
+
+    Shell.drawer({
+      title: isNew ? 'New table rule' : 'Edit table rule', width: 620,
+      subtitle: isNew ? 'Define identity, resource, and privileges' : (r.cat + '.' + (r.sch || '*') + '.' + (r.tbl || '*')),
+      body: body, footer: footer,
+      onMount: function (d, close) {
+        d.querySelectorAll('[data-allow]').forEach(function (b) { b.addEventListener('click', function () { d.querySelectorAll('[data-allow]').forEach(function (x) { x.setAttribute('aria-selected', x === b); }); }); });
+        d.querySelector('[data-cancel]').addEventListener('click', close);
+        d.querySelector('[data-save]').addEventListener('click', function () { close(); Shell.toast({ title: isNew ? 'Rule created & valid' : 'Rule saved & valid', desc: 'Added to draft · publish to deploy', tone: 'success' }); });
+        d.querySelector('[data-draft]').addEventListener('click', function () { close(); Shell.toast({ title: 'Saved as draft', tone: 'info' }); });
+        if (d.querySelector('[data-del]')) d.querySelector('[data-del]').addEventListener('click', function () { close(); Shell.confirm({ title: 'Delete this rule?', subtitle: 'Removed from the draft until published.', okText: 'Delete rule', onConfirm: function () { Shell.toast({ title: 'Rule deleted', tone: 'destructive' }); } }); });
+      },
+    });
+  }
+
+  document.getElementById('btn-add').addEventListener('click', function () { openEditor(null, null); });
+
+  /* ---------- Validate ---------- */
+  document.getElementById('btn-validate').addEventListener('click', function () {
+    var b = this; b.disabled = true; b.innerHTML = I('history', 'w-4 h-4 animate-spin') + 'Validating…';
+    setTimeout(function () {
+      b.disabled = false; b.innerHTML = I('check', 'w-4 h-4') + 'Validate';
+      Shell.toast({ title: 'Validation finished', desc: '7 valid · 2 invalid (WRITE privilege, bad regex)', tone: 'warning' });
+    }, 1100);
+  });
+
+  /* ---------- Publish dialog ---------- */
+  document.getElementById('btn-publish').addEventListener('click', openPublish);
+  function openPublish() {
+    var body =
+      '<div class="space-y-5">' +
+      '<div class="rounded-md border border-warning/40 bg-warning/[0.06] p-3 flex gap-2.5"><span class="text-warning mt-0.5 [&>svg]:w-4 [&>svg]:h-4">' + I('alert') + '</span><p class="text-[13px] text-muted-foreground"><span class="font-medium text-foreground">2 rules are invalid.</span> They will be skipped and excluded from the published config.</p></div>' +
+      '<div><p class="label mb-2">Delivery mode</p><div class="grid grid-cols-1 gap-2">' +
+        '<label class="flex cursor-pointer items-start gap-3 rounded-md border border-primary bg-primary/[0.06] p-3"><input type="radio" name="mode" checked class="chk mt-0.5 rounded-full" /><div><p class="text-[13px] font-medium">HTTP-served <span class="badge badge-primary ml-1">recommended</span></p><p class="text-[12px] text-muted-foreground">Trino polls <span class="mono">/v1/security/rules</span> every 30s. Zero-downtime, instant rollback.</p></div></label>' +
+        '<label class="flex cursor-pointer items-start gap-3 rounded-md border border-border p-3 hover:bg-accent/40"><input type="radio" name="mode" class="chk mt-0.5 rounded-full" /><div><p class="text-[13px] font-medium">File-write</p><p class="text-[12px] text-muted-foreground">Write <span class="mono">rules.json</span> to the coordinator filesystem. Requires config reload.</p></div></label>' +
+      '</div></div>' +
+      '<div><p class="label mb-2">Change preview · <span class="text-muted-foreground font-normal">v142 → v143</span></p>' +
+        '<div class="rounded-md border border-border overflow-hidden text-[12px] mono">' +
+          '<div class="flex items-center gap-2 px-3 py-1.5 diff-add">' + I('plus', 'w-3.5 h-3.5') + '<span>group:fraud-investigators → transactions.gold.payments SELECT</span></div>' +
+          '<div class="flex items-center gap-2 px-3 py-1.5 diff-add">' + I('plus', 'w-3.5 h-3.5') + '<span>group:data-engineers → ledger.staging.* SELECT,INSERT,DELETE</span></div>' +
+          '<div class="flex items-center gap-2 px-3 py-1.5 diff-del">' + I('x', 'w-3.5 h-3.5') + '<span>group:interns → analytics.*.* SELECT</span></div>' +
+        '</div></div>' +
+      '<label class="flex items-center gap-2.5 text-[13px]"><input type="checkbox" class="chk" id="ack" /> I have reviewed the diff and want to publish to <b>Production</b></label>' +
+      '</div>';
+    Shell.modal({
+      title: 'Publish to Production', subtitle: 'trino.prod.internal · 12 changes', icon: 'rocket', tone: 'primary', width: 560, body: body,
+      footer: '<button class="btn btn-outline" data-cancel>Cancel</button><button class="btn btn-primary" data-go disabled>' + I('rocket', 'w-4 h-4') + 'Publish v143</button>',
+      onMount: function (m, close) {
+        var go = m.querySelector('[data-go]'); m.querySelector('#ack').addEventListener('change', function (e) { go.disabled = !e.target.checked; });
+        m.querySelector('[data-cancel]').addEventListener('click', close);
+        go.addEventListener('click', function () { go.disabled = true; go.innerHTML = I('history', 'w-4 h-4 animate-spin') + 'Publishing…'; setTimeout(function () { close(); Shell.toast({ title: 'Published revision v143', desc: '12 changes live on Production · drift cleared', tone: 'success' }); document.getElementById('dirty-badge').remove(); }, 1300); });
+      },
+    });
+  }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Version History · Trino-Secure</title>
+<script>document.documentElement.classList.toggle('dark',(localStorage.getItem('ts-theme')||'dark')==='dark');</script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300..700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="assets/tw.js"></script>
+<link rel="stylesheet" href="assets/theme.css" />
+</head>
+<body>
+<template id="page">
+  <div class="mx-auto max-w-[1320px] px-4 py-6 md:px-6 md:py-8">
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <h1 class="text-2xl font-semibold tracking-tight">Version History</h1>
+        <p class="mt-1 text-sm text-muted-foreground">Every published revision of <span class="mono">rules.json</span>. Select two to compare, or roll back to any point.</p>
+      </div>
+      <button class="btn btn-primary btn-sm" id="compare" data-i="diff" disabled>Compare selected</button>
+    </div>
+
+    <div class="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[380px_1fr]">
+      <!-- timeline -->
+      <section>
+        <div class="mb-3 flex items-center justify-between"><h2 class="text-sm font-semibold">Revisions</h2><span class="text-[12px] text-muted-foreground" id="selnote">Select 2 to compare</span></div>
+        <ol id="timeline" class="relative space-y-1"></ol>
+      </section>
+
+      <!-- diff panel -->
+      <section class="card overflow-hidden">
+        <div class="flex items-center justify-between border-b border-border px-4 py-3">
+          <div class="flex items-center gap-2 text-sm font-semibold"><span class="[&>svg]:w-4 [&>svg]:h-4 text-muted-foreground" data-i="diff"></span>Diff <span id="difftitle" class="text-muted-foreground font-normal">v141 → v142</span></div>
+          <div class="flex items-center gap-2"><span class="badge badge-success"><span class="dot bg-success"></span>+3</span><span class="badge badge-destructive"><span class="dot bg-destructive"></span>−1</span><span class="badge badge-warning"><span class="dot bg-warning"></span>~2</span></div>
+        </div>
+        <div class="overflow-x-auto"><div id="diff" class="mono text-[12px] leading-relaxed min-w-[520px]"></div></div>
+      </section>
+    </div>
+  </div>
+</template>
+<script>window.PAGE = { id: 'history', title: 'Version History' };</script>
+<script src="assets/shell.js"></script>
+<script>
+(function () {
+  var I = Shell.icon;
+  document.querySelectorAll('[data-i]').forEach(function (el) { el.innerHTML = I(el.dataset.i) + (el.textContent || ''); });
+
+  var VERS = [
+    { v: 'v142', cur: true, who: 'Ava Reyes', init: 'AR', t: 'Today · 14:32', rules: 84, changes: '12 changes', note: 'Quarterly access review · fraud-investigators onboarding', env: 'prod' },
+    { v: 'v141', who: 'Marco Vidal', init: 'MV', t: 'Jun 12 · 09:18', rules: 83, changes: '4 changes', note: 'PII column masking for customers', env: 'prod' },
+    { v: 'v140', who: 'Ava Reyes', init: 'AR', t: 'Jun 09 · 16:40', rules: 81, changes: '7 changes', note: 'Ledger staging write access for data-engineers', env: 'prod' },
+    { v: 'v139', who: 'Priya Nair', init: 'PN', t: 'Jun 05 · 11:02', rules: 79, changes: '2 changes', note: 'Treasury group read access', env: 'prod' },
+    { v: 'v138', who: 'Marco Vidal', init: 'MV', t: 'Jun 01 · 08:55', rules: 78, changes: '15 changes', note: 'Initial Q2 baseline', env: 'prod' },
+  ];
+
+  var sel = [];
+  function render() {
+    document.getElementById('timeline').innerHTML = VERS.map(function (v, i) {
+      var checked = sel.indexOf(v.v) > -1;
+      return '<li class="relative pl-7">' +
+        (i < VERS.length - 1 ? '<span class="absolute left-[11px] top-7 bottom-[-4px] w-px bg-border"></span>' : '') +
+        '<span class="absolute left-2 top-4 h-2 w-2 rounded-full ' + (v.cur ? 'bg-primary ring-4 ring-primary/20' : 'bg-muted-foreground/40') + '"></span>' +
+        '<label class="card flex cursor-pointer items-start gap-3 p-3 transition-colors ' + (checked ? 'border-primary bg-primary/[0.05]' : 'hover:bg-accent/40') + '">' +
+          '<input type="checkbox" class="chk mt-0.5" data-v="' + v.v + '" ' + (checked ? 'checked' : '') + ' />' +
+          '<div class="min-w-0 flex-1"><div class="flex items-center gap-2"><span class="font-semibold mono text-[13px]">' + v.v + '</span>' + (v.cur ? '<span class="badge badge-primary">current</span>' : '') + '<span class="badge badge-neutral">' + v.changes + '</span></div>' +
+            '<p class="mt-1 text-[12px] text-muted-foreground line-clamp-1">' + v.note + '</p>' +
+            '<div class="mt-1.5 flex items-center gap-2 text-[11px] text-muted-foreground"><span class="flex h-4 w-4 items-center justify-center rounded-full bg-muted text-[8px] font-semibold">' + v.init + '</span>' + v.who + ' · ' + v.t + ' · ' + v.rules + ' rules</div></div>' +
+          (!v.cur ? '<button class="btn btn-ghost btn-icon btn-sm" data-rb="' + v.v + '" title="Roll back to this">' + I('history', 'w-4 h-4') + '</button>' : '') +
+        '</label></li>';
+    }).join('');
+    document.querySelectorAll('[data-v]').forEach(function (c) { c.addEventListener('change', function () {
+      if (c.checked) { sel.push(c.dataset.v); if (sel.length > 2) { var rm = sel.shift(); } } else { sel = sel.filter(function (x) { return x !== c.dataset.v; }); }
+      var btn = document.getElementById('compare'); btn.disabled = sel.length !== 2;
+      document.getElementById('selnote').textContent = sel.length === 2 ? sel.join(' ↔ ') : (sel.length + ' selected · pick ' + (2 - sel.length) + ' more');
+      render();
+    }); });
+    document.querySelectorAll('[data-rb]').forEach(function (b) { b.addEventListener('click', function (e) { e.preventDefault(); rollback(b.dataset.rb); }); });
+  }
+  render();
+  showDiff('v141', 'v142');
+
+  var DIFF = [
+    { k: 'ctx', t: '  "tables": [' },
+    { k: 'mod', t: '~   compliance → pii.restricted.customers · added 3 column masks' },
+    { k: 'add', t: '+   fraud-investigators → transactions.gold.payments SELECT' },
+    { k: 'add', t: '+   data-engineers → ledger.staging.* SELECT,INSERT,DELETE' },
+    { k: 'add', t: '+   treasury → ledger.gold.balances SELECT' },
+    { k: 'mod', t: '~   analysts → pii.*.* changed from SELECT to DENY' },
+    { k: 'del', t: '−   interns → analytics.*.* SELECT (removed)' },
+    { k: 'ctx', t: '  ]' },
+  ];
+  function showDiff(a, b) {
+    document.getElementById('difftitle').textContent = a + ' → ' + b;
+    var cmap = { ctx: 'diff-ctx text-muted-foreground', add: 'diff-add', del: 'diff-del', mod: 'diff-add' };
+    document.getElementById('diff').innerHTML = DIFF.map(function (d) { return '<div class="' + cmap[d.k] + ' px-4 py-1 whitespace-pre">' + d.t.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</div>'; }).join('');
+  }
+  document.getElementById('compare').addEventListener('click', function () { var s = sel.slice().sort(); showDiff(s[0], s[1]); document.querySelector('#diff').scrollIntoView ? null : null; });
+
+  function rollback(v) {
+    Shell.confirm({ title: 'Roll back to ' + v + '?', tone: 'destructive', icon: 'history', okText: 'Roll back to ' + v,
+      subtitle: 'Production will revert to revision <b>' + v + '</b>. This creates a new revision (v143) — history is preserved.',
+      onConfirm: function () { Shell.toast({ title: 'Rolled back to ' + v, desc: 'Created revision v143 · publish to deploy', tone: 'warning' }); } });
+  }
+})();
+</script>
+</body>
+</html>

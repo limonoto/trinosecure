@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Groups · Trino-Secure</title>
+<script>document.documentElement.classList.toggle('dark',(localStorage.getItem('ts-theme')||'dark')==='dark');</script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300..700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="assets/tw.js"></script>
+<link rel="stylesheet" href="assets/theme.css" />
+</head>
+<body>
+<template id="page">
+  <div class="mx-auto max-w-[1240px] px-4 py-6 md:px-6 md:py-8">
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <h1 class="text-2xl font-semibold tracking-tight">Groups</h1>
+        <p class="mt-1 text-sm text-muted-foreground">Trino groups used in authorization rules · <span class="font-medium text-foreground" id="gcount">27</span> groups · <span class="font-medium text-foreground">412</span> distinct members</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <button class="btn btn-outline btn-sm" id="sync" data-i="history">Sync from LDAP</button>
+        <button class="btn btn-primary btn-sm" id="add" data-i="plus">Add group</button>
+      </div>
+    </div>
+
+    <div class="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div class="relative max-w-xs flex-1">
+        <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground [&>svg]:w-4 [&>svg]:h-4" data-i="search"></span>
+        <input id="search" class="input pl-9" placeholder="Search groups…" />
+      </div>
+      <div class="seg" id="srcfilter"><button aria-selected="true" data-src="all">All</button><button aria-selected="false" data-src="LDAP">LDAP</button><button aria-selected="false" data-src="Local">Local</button></div>
+    </div>
+
+    <div class="card mt-3 overflow-hidden">
+      <div class="overflow-x-auto"><table class="tbl min-w-[820px]">
+        <thead><tr><th>Group</th><th class="w-32">Members</th><th class="w-28">Source</th><th>Used in rules</th><th class="w-32">Updated</th><th class="w-10"></th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table></div>
+    </div>
+  </div>
+</template>
+<script>window.PAGE = { id: 'groups', title: 'Groups' };</script>
+<script src="assets/shell.js"></script>
+<script>
+(function () {
+  var I = Shell.icon;
+  document.querySelectorAll('[data-i]').forEach(function (el) { el.innerHTML = I(el.dataset.i) + (el.textContent || ''); });
+
+  var GROUPS = [
+    { name: 'platform-admins', members: 6, src: 'Local', rules: 4, updated: '2d ago', desc: 'Full system access', tone: 'destructive' },
+    { name: 'compliance', members: 18, src: 'LDAP', rules: 12, updated: '6h ago', desc: 'GDPR / SOC2 auditors', tone: 'primary' },
+    { name: 'fraud-investigators', members: 8, src: 'LDAP', rules: 7, updated: '3h ago', desc: 'Transaction monitoring', tone: 'warning' },
+    { name: 'analysts', members: 142, src: 'LDAP', rules: 9, updated: '1d ago', desc: 'BI & reporting', tone: 'info' },
+    { name: 'data-engineers', members: 34, src: 'LDAP', rules: 11, updated: '4h ago', desc: 'Pipeline owners', tone: 'success' },
+    { name: 'risk-modeling', members: 21, src: 'LDAP', rules: 6, updated: '2d ago', desc: 'Credit & market risk', tone: 'info' },
+    { name: 'service-etl', members: 3, src: 'Local', rules: 8, updated: '5d ago', desc: 'Automated service accounts', tone: 'neutral' },
+    { name: 'contractors', members: 27, src: 'LDAP', rules: 3, updated: '1d ago', desc: 'Time-boxed external access', tone: 'warning' },
+    { name: 'treasury', members: 11, src: 'LDAP', rules: 5, updated: '3d ago', desc: 'Ledger & balances', tone: 'primary' },
+  ];
+
+  var MEMBERS = ['ava.reyes', 'marco.vidal', 'priya.nair', 'liam.chen', 'sofia.rossi', 'noah.kim', 'maya.gupta', 'omar.haddad'];
+
+  var tbody = document.getElementById('rows');
+  var srcFilter = 'all';
+  function render(q) {
+    q = (q || '').toLowerCase();
+    tbody.innerHTML = GROUPS.filter(function (g) { return (srcFilter === 'all' || g.src === srcFilter) && g.name.indexOf(q) > -1; }).map(function (g) {
+      return '<tr class="row-hover cursor-pointer" data-g="' + g.name + '">' +
+        '<td><div class="flex items-center gap-2.5"><span class="flex h-7 w-7 items-center justify-center rounded-md bg-' + (g.tone === 'neutral' ? 'muted text-muted-foreground' : g.tone + '/12 text-' + g.tone) + ' [&>svg]:w-4 [&>svg]:h-4">' + I('users') + '</span>' +
+          '<div><div class="font-medium mono text-[13px]">' + g.name + '</div><div class="text-[12px] text-muted-foreground">' + g.desc + '</div></div></div></td>' +
+        '<td><span class="tabular font-medium">' + g.members + '</span> <span class="text-muted-foreground text-[12px]">members</span></td>' +
+        '<td><span class="badge ' + (g.src === 'LDAP' ? 'badge-info' : 'badge-neutral') + '">' + g.src + '</span></td>' +
+        '<td><span class="tabular">' + g.rules + '</span> <span class="text-muted-foreground text-[12px]">rules</span></td>' +
+        '<td class="text-muted-foreground text-[12px]">' + g.updated + '</td>' +
+        '<td><span class="text-muted-foreground [&>svg]:w-4 [&>svg]:h-4">' + I('chevronr') + '</span></td></tr>';
+    }).join('');
+    tbody.querySelectorAll('[data-g]').forEach(function (tr) { tr.addEventListener('click', function () { openGroup(GROUPS.find(function (g) { return g.name === tr.dataset.g; })); }); });
+  }
+  render();
+  document.getElementById('search').addEventListener('input', function (e) { render(e.target.value); });
+  document.getElementById('srcfilter').addEventListener('click', function (e) { var b = e.target.closest('[data-src]'); if (!b) return; srcFilter = b.dataset.src; document.querySelectorAll('[data-src]').forEach(function (x) { x.setAttribute('aria-selected', x === b); }); render(document.getElementById('search').value); });
+
+  function openGroup(g) {
+    var memberRows = MEMBERS.slice(0, Math.min(g.members, 8)).map(function (m) {
+      return '<div class="flex items-center gap-3 px-3 py-2 group/m"><span class="flex h-7 w-7 items-center justify-center rounded-full bg-muted text-[11px] font-semibold">' + m.split('.').map(function (s) { return s[0]; }).join('').toUpperCase() + '</span>' +
+        '<div class="flex-1"><div class="text-[13px] font-medium mono">' + m + '</div></div>' +
+        '<button class="btn btn-ghost btn-icon btn-sm opacity-0 group-hover/m:opacity-100 text-destructive" title="Remove">' + I('x', 'w-4 h-4') + '</button></div>';
+    }).join('');
+    var refRules = [
+      { r: 'transactions.gold.payments', p: 'SELECT', allow: true },
+      { r: 'pii.restricted.customers', p: 'SELECT', allow: true },
+      { r: 'ledger.*.*', p: 'Deny', allow: false },
+    ];
+    var body =
+      '<div class="space-y-6">' +
+      '<div class="flex items-center gap-3"><span class="flex h-12 w-12 items-center justify-center rounded-lg bg-' + (g.tone === 'neutral' ? 'muted text-muted-foreground' : g.tone + '/12 text-' + g.tone) + ' [&>svg]:w-6 [&>svg]:h-6">' + I('users') + '</span>' +
+        '<div><div class="flex items-center gap-2"><span class="badge ' + (g.src === 'LDAP' ? 'badge-info' : 'badge-neutral') + '">' + g.src + '</span><span class="text-[12px] text-muted-foreground">updated ' + g.updated + '</span></div><p class="mt-1 text-[13px] text-muted-foreground">' + g.desc + '</p></div></div>' +
+      '<div class="grid grid-cols-2 gap-3"><div class="card p-3"><div class="text-2xl font-semibold tabular">' + g.members + '</div><div class="text-[12px] text-muted-foreground">members</div></div><div class="card p-3"><div class="text-2xl font-semibold tabular">' + g.rules + '</div><div class="text-[12px] text-muted-foreground">referencing rules</div></div></div>' +
+      '<section><div class="mb-2 flex items-center justify-between"><h3 class="text-[13px] font-semibold">Members</h3><button class="btn btn-outline btn-sm" id="addmem">' + I('plus', 'w-4 h-4') + 'Add member</button></div>' +
+        '<div class="relative mb-2"><span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground [&>svg]:w-4 [&>svg]:h-4">' + I('search') + '</span><input class="input pl-9" placeholder="Filter members…" /></div>' +
+        '<div class="card divide-y divide-border max-h-72 overflow-y-auto">' + memberRows + (g.members > 8 ? '<div class="px-3 py-2 text-[12px] text-muted-foreground">+ ' + (g.members - 8) + ' more</div>' : '') + '</div></section>' +
+      '<section><h3 class="mb-2 text-[13px] font-semibold">Rules referencing this group</h3>' +
+        '<div class="card divide-y divide-border">' + refRules.map(function (r) {
+          return '<a href="rules-workspace.html" class="flex items-center gap-3 px-3 py-2.5 hover:bg-accent/50"><span class="mono text-[13px] flex-1">' + r.r + '</span>' +
+            '<span class="badge ' + (r.allow ? 'badge-neutral' : 'badge-destructive') + '">' + r.p + '</span><span class="text-muted-foreground [&>svg]:w-4 [&>svg]:h-4">' + I('chevronr') + '</span></a>';
+        }).join('') + '</div></section></div>';
+    Shell.drawer({
+      title: g.name, subtitle: 'Group detail', width: 560, body: body,
+      footer: '<button class="btn btn-ghost text-destructive mr-auto" data-del>' + I('trash', 'w-4 h-4') + 'Delete group</button><button class="btn btn-outline" data-cancel>Close</button><button class="btn btn-primary" data-save>Save changes</button>',
+      onMount: function (d, close) {
+        d.querySelector('[data-cancel]').addEventListener('click', close);
+        d.querySelector('[data-save]').addEventListener('click', function () { close(); Shell.toast({ title: 'Group updated', tone: 'success' }); });
+        d.querySelector('#addmem').addEventListener('click', function () { Shell.toast({ title: 'Pick members to add', desc: 'Member picker would open here', tone: 'info' }); });
+        d.querySelector('[data-del]').addEventListener('click', function () { close(); Shell.confirm({ title: 'Delete ' + g.name + '?', subtitle: 'This group is referenced by <b>' + g.rules + ' rules</b>. Those rules will need updating.', okText: 'Delete group', onConfirm: function () { Shell.toast({ title: 'Group deleted', tone: 'destructive' }); } }); });
+      },
+    });
+  }
+
+  document.getElementById('add').addEventListener('click', function () {
+    Shell.modal({
+      title: 'Add group', subtitle: 'Create a local group or import from a directory', icon: 'users', tone: 'primary', width: 480,
+      body: '<div class="space-y-4"><div class="space-y-1.5"><label class="label">Group name</label><input class="input mono" placeholder="e.g. quant-research" /></div>' +
+        '<div class="space-y-1.5"><label class="label">Description</label><input class="input" placeholder="Short description" /></div>' +
+        '<div class="space-y-1.5"><label class="label">Source</label><div class="seg w-full"><button aria-selected="true" class="flex-1">Local</button><button aria-selected="false" class="flex-1">LDAP-synced</button></div></div></div>',
+      footer: '<button class="btn btn-outline" data-cancel>Cancel</button><button class="btn btn-primary" data-ok>Create group</button>',
+      onMount: function (m, close) { m.querySelectorAll('.seg button').forEach(function (b) { b.addEventListener('click', function () { m.querySelectorAll('.seg button').forEach(function (x) { x.setAttribute('aria-selected', x === b); }); }); }); m.querySelector('[data-cancel]').addEventListener('click', close); m.querySelector('[data-ok]').addEventListener('click', function () { close(); Shell.toast({ title: 'Group created', tone: 'success' }); }); },
+    });
+  });
+  document.getElementById('sync').addEventListener('click', function () { var b = this; b.disabled = true; b.innerHTML = I('history', 'w-4 h-4 animate-spin') + 'Syncing…'; setTimeout(function () { b.disabled = false; b.innerHTML = I('history', 'w-4 h-4') + 'Sync from LDAP'; Shell.toast({ title: 'LDAP sync complete', desc: '3 groups updated · 11 new members', tone: 'success' }); }, 1200); });
+})();
+</script>
+</body>
+</html>

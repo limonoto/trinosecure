@@ -1,0 +1,441 @@
+// Trino-Secure UI database schema.
+// The DB is a backup / persist + audit layer; the config FILES Trino reads are
+// the source of truth (see docs/05-database-schema.md). All schema changes go
+// through Prisma migrations.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum EnvironmentDeliveryMode {
+  HTTP
+  FILE
+}
+
+enum ConfigArtifactType {
+  RULES_JSON
+  CATALOG_RULES_JSON
+  RESOURCE_GROUPS_JSON
+  RESOURCE_GROUPS_PROPERTIES
+  ACCESS_CONTROL_PROPERTIES
+  AUTH_PROPERTIES
+  GROUP_PROVIDER
+  GROUP_PROVIDER_PROPERTIES
+  USER_MAPPING
+  CATALOG_PROPERTIES
+  PASSWORD_DB
+  TLS_CERT
+  SECRET_REF
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  IMPORT
+  EXPORT
+  PUBLISH
+  ROLLBACK
+  DEPLOY
+  RESTART
+}
+
+/// Application roles for RBAC (requirement 3.1).
+enum AppRole {
+  VIEWER
+  CONFIG_EDITOR
+  PLATFORM_ADMIN
+}
+
+enum TrinoNodeType {
+  COORDINATOR
+  WORKER
+}
+
+/// password.db hashing scheme (requirement 2.1 — decryption type).
+enum PasswordEncoding {
+  BCRYPT
+  PBKDF2
+}
+
+enum AlertKind {
+  STATIC
+  DYNAMIC
+}
+
+enum AlertComparator {
+  GT
+  GTE
+  LT
+  LTE
+}
+
+enum AlertStatus {
+  FIRING
+  RESOLVED
+}
+
+enum DeployRunStatus {
+  PENDING
+  RUNNING
+  SUCCESS
+  FAILED
+}
+
+enum DeployRunType {
+  DISTRIBUTE
+  VERIFY
+}
+
+/// SSH credentials for automated Ansible deployment against a Trino cluster.
+/// Sensitive fields (password, private key) are stored AES-256-GCM encrypted.
+model EnvironmentSshConfig {
+  id            String           @id @default(cuid())
+  environmentId String           @unique
+  environment   TrinoEnvironment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+  sshUser       String           @default("ansible")
+  /// AES-256-GCM encrypted SSH password. Null if key-based auth is used.
+  sshPassword   String?
+  /// AES-256-GCM encrypted PEM private key content. Null if password auth is used.
+  privateKey    String?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+}
+
+/// A record of one automated Ansible playbook execution (distribute or verify).
+model DeploymentRun {
+  id            String           @id @default(cuid())
+  environmentId String
+  environment   TrinoEnvironment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+  type          DeployRunType
+  status        DeployRunStatus  @default(PENDING)
+  /// Combined stdout + stderr from ansible-playbook.
+  stdout        String?
+  returnCode    Int?
+  triggeredBy   String
+  createdAt     DateTime         @default(now())
+  completedAt   DateTime?
+
+  @@index([environmentId, createdAt])
+}
+
+/// A managed Trino cluster.
+model TrinoEnvironment {
+  id            String                  @id @default(cuid())
+  name          String                  @unique
+  deliveryMode  EnvironmentDeliveryMode @default(HTTP)
+  /// HTTP endpoint or filesystem path base where config is delivered.
+  configTarget  String
+  /// Mirrors Trino's security.refresh-period (e.g. "1s"); null = restart needed.
+  refreshPeriod String?
+  /// Bearer token Trino uses to fetch the HTTP-served rules.json (Mode A). Null = not generated.
+  httpToken     String?
+  /// Coordinator base URL for the Trino REST API (/v1/*), e.g. http://coord:8080. Used by
+  /// node discovery, drift checks (Phase 4) and the observability collector (Phase 5).
+  trinoBaseUrl  String?
+  /// Username for Trino HTTP API basic authentication (optional — only needed when Trino has password auth).
+  trinoUsername String?
+  /// AES-256-GCM encrypted Trino HTTP API password. Null when auth is not required.
+  trinoPassword String?
+  createdAt     DateTime                @default(now())
+  updatedAt     DateTime                @updatedAt
+  /// Soft-delete timestamp. Non-null = archived; excluded from all active queries.
+  deletedAt     DateTime?
+
+  groups          AppGroup[]
+  artifacts       ConfigArtifact[]
+  auditLogs       AuditLog[]
+  userRoles       AppUserRole[]
+  nodes           TrinoNode[]
+  passwordEntries PasswordEntry[]
+  catalogs        CatalogConfig[]
+  queryStats      QueryStat[]
+  nodeMetrics     NodeMetric[]
+  clusterMetrics  ClusterMetric[]
+  errorBuckets    ErrorBucket[]
+  alertRules      AlertRule[]
+  sshConfig       EnvironmentSshConfig?
+  deploymentRuns  DeploymentRun[]
+}
+
+/// A group managed in-app (basis for `group` matches in rules.json).
+model AppGroup {
+  id            String           @id @default(cuid())
+  environmentId String
+  environment   TrinoEnvironment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+  name          String
+  description   String?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  members AppGroupMember[]
+
+  @@unique([environmentId, name])
+  @@index([environmentId])
+}
+
+/// Membership of a username (Keycloak-authenticated) in a group.
+model AppGroupMember {
+  id        String   @id @default(cuid())
+  groupId   String
+  group     AppGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  username  String
+  createdAt DateTime @default(now())
+
+  @@unique([groupId, username])
+  @@index([groupId])
+}
+
+/// One managed config file/concept (the bridge between the UI and a Trino file).
+model ConfigArtifact {
+  id            String             @id @default(cuid())
+  environmentId String
+  environment   TrinoEnvironment   @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+  type          ConfigArtifactType
+  /// Logical name / target filename.
+  name          String
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  versions ConfigVersion[]
+
+  @@unique([environmentId, type, name])
+  @@index([environmentId])
+}
+
+/// An immutable snapshot of an artifact's content — enables history + rollback.
+/// Exactly one version per artifact should have isActive = true (enforced in app logic).
+model ConfigVersion {
+  id         String         @id @default(cuid())
+  artifactId String
+  artifact   ConfigArtifact @relation(fields: [artifactId], references: [id], onDelete: Cascade)
+  version    Int
+  /// The file content (JSON for rules, or properties text).
+  content    String
+  note       String?
+  isActive   Boolean        @default(false)
+  createdBy  String
+  createdAt  DateTime       @default(now())
+
+  @@unique([artifactId, version])
+  @@index([artifactId])
+}
+
+/// Who changed what, when (the logging requirement).
+model AuditLog {
+  id              String            @id @default(cuid())
+  environmentId   String?
+  environment     TrinoEnvironment? @relation(fields: [environmentId], references: [id], onDelete: SetNull)
+  actorUsername   String
+  /// Keycloak email of the actor — unique identifier from the OIDC token.
+  actorEmail      String?
+  action          AuditAction
+  entityType      String
+  entityId        String
+  /// Name of the TrinoEnvironment the actor was connected to when the action was performed.
+  trinoEnvName    String?
+  /// Coordinator base URL of the Trino cluster at the time of the action.
+  trinoBaseUrl    String?
+  before          Json?
+  after           Json?
+  createdAt       DateTime          @default(now())
+
+  @@index([environmentId])
+  @@index([actorEmail])
+  @@index([createdAt])
+}
+
+// ─────────────────────────── RBAC (requirement 3) ───────────────────────────
+
+/// Role assignment for a Keycloak username. A null environmentId = global role;
+/// otherwise the role applies only to that environment. Optional scope arrays
+/// further restrict a CONFIG_EDITOR to specific config types / resource groups.
+model AppUserRole {
+  id                  String               @id @default(cuid())
+  username            String
+  role                AppRole              @default(VIEWER)
+  environmentId       String?
+  environment         TrinoEnvironment?    @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+  scopeConfigTypes    ConfigArtifactType[]
+  scopeResourceGroups String[]
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+
+  @@unique([username, environmentId])
+  @@index([environmentId])
+}
+
+// ─────────────────── Identity / config editors (requirement 2) ───────────────
+
+/// A node (server) in a Trino cluster — inventory for drift checks (5.3),
+/// node metrics (6.3) and "is this user present on all nodes?" verification (2.3).
+model TrinoNode {
+  id            String           @id @default(cuid())
+  environmentId String
+  environment   TrinoEnvironment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+  nodeId        String
+  host          String
+  type          TrinoNodeType    @default(WORKER)
+  lastSeen      DateTime?
+  createdAt     DateTime         @default(now())
+
+  @@unique([environmentId, nodeId])
+  @@index([environmentId])
+}
+
+/// A password-file (password.db) entry — never stored in plain text (2.1).
+model PasswordEntry {
+  id            String           @id @default(cuid())
+  environmentId String
+  environment   TrinoEnvironment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+  username      String
+  passwordHash  String
+  encoding      PasswordEncoding @default(BCRYPT)
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  @@unique([environmentId, username])
+  @@index([environmentId])
+}
+
+/// A catalog connector configuration (JDBC etc.) — type-aware key/value props (2.1).
+model CatalogConfig {
+  id            String           @id @default(cuid())
+  environmentId String
+  environment   TrinoEnvironment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+  name          String
+  connector     String
+  properties    Json
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  @@unique([environmentId, name])
+  @@index([environmentId])
+}
+
+// ──────────────────── Observability time-series (requirement 6) ──────────────
+
+/// Per-query execution stats sampled from /v1/query — error analytics (6.2) +
+/// performance (6.4). One row per query, upserted as the query progresses.
+model QueryStat {
+  id            String           @id @default(cuid())
+  environmentId String
+  environment   TrinoEnvironment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+  queryId       String
+  username      String?
+  resourceGroup String?
+  state         String
+  errorType     String?
+  errorCode     String?
+  queuedMs             Int?
+  analysisMs           Int?
+  planningMs           Int?
+  executionMs          Int?
+  elapsedMs            Int?
+  /// Bytes moved between workers over the network (Trino "shuffle").
+  shuffledBytes        BigInt?
+  /// Bytes read from external storage (connectors).
+  physicalInputBytes   BigInt?
+  /// Bytes written to external storage.
+  physicalWrittenBytes BigInt?
+  createTime           DateTime
+  endTime              DateTime?
+  collectedAt          DateTime         @default(now())
+
+  @@unique([environmentId, queryId])
+  @@index([environmentId, createTime])
+  @@index([environmentId, errorType])
+  @@index([environmentId, resourceGroup])
+}
+
+/// Point-in-time per-node metrics sampled from /v1/node + JMX (6.3).
+model NodeMetric {
+  id            String           @id @default(cuid())
+  environmentId String
+  environment   TrinoEnvironment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+  nodeId        String
+  ts            DateTime
+  cpuPercent    Float?
+  heapUsedBytes BigInt?
+  heapMaxBytes  BigInt?
+  nonHeapBytes  BigInt?
+  activeTasks   Int?
+  failedTasks   Int?
+
+  @@index([environmentId, ts])
+  @@index([environmentId, nodeId, ts])
+}
+
+/// Cluster-wide health sampled from /v1/cluster (6.3.1).
+model ClusterMetric {
+  id                  String           @id @default(cuid())
+  environmentId       String
+  environment         TrinoEnvironment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+  ts                  DateTime
+  runningQueries      Int?
+  queuedQueries       Int?
+  blockedQueries      Int?
+  activeWorkers       Int?
+  runningDrivers      Int?
+  /// Total inter-node shuffle bytes across all active queries this sample.
+  totalShuffledBytes  BigInt?
+  /// Total bytes read from external storage this sample.
+  totalInputBytes     BigInt?
+
+  @@index([environmentId, ts])
+}
+
+/// Pre-aggregated error counts per time bucket for fast error charts (6.2.2).
+/// username / resourceGroup default to "" (not null) so the unique upsert key works.
+model ErrorBucket {
+  id            String           @id @default(cuid())
+  environmentId String
+  environment   TrinoEnvironment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+  bucketStart   DateTime
+  errorType     String
+  username      String           @default("")
+  resourceGroup String           @default("")
+  count         Int              @default(0)
+
+  @@unique([environmentId, bucketStart, errorType, username, resourceGroup])
+  @@index([environmentId, bucketStart])
+}
+
+// ─────────────────────── Alerting & anomaly (requirement 6.6) ─────────────────
+
+model AlertRule {
+  id            String           @id @default(cuid())
+  environmentId String
+  environment   TrinoEnvironment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+  name          String
+  kind          AlertKind        @default(STATIC)
+  /// Metric key, e.g. "error_rate", "error_rate:USER_ERROR", "avg_runtime_ms".
+  metric        String
+  comparator    AlertComparator  @default(GT)
+  threshold     Float
+  /// Evaluation window, e.g. "5m", "1h".
+  window        String           @default("5m")
+  enabled       Boolean          @default(true)
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  events AlertEvent[]
+
+  @@index([environmentId])
+}
+
+model AlertEvent {
+  id     String      @id @default(cuid())
+  ruleId String
+  rule   AlertRule   @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  ts     DateTime    @default(now())
+  value  Float
+  status AlertStatus @default(FIRING)
+
+  @@index([ruleId, ts])
+}

@@ -1,0 +1,40 @@
+{
+  "realm": "trino-secure",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "clients": [
+    {
+      "clientId": "trino-secure-ui",
+      "name": "Trino-Secure UI",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "dev-trino-secure-secret",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "rootUrl": "http://localhost:3100",
+      "baseUrl": "http://localhost:3100",
+      "redirectUris": ["http://localhost:3100/*"],
+      "webOrigins": ["http://localhost:3100"],
+      "defaultClientScopes": ["openid", "profile", "email", "roles"]
+    }
+  ],
+  "users": [
+    {
+      "username": "admin",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "admin@trino-secure.local",
+      "firstName": "Trino",
+      "lastName": "Admin",
+      "credentials": [
+        { "type": "password", "value": "admin", "temporary": false }
+      ]
+    }
+  ]
+}

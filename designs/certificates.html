@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Certificates · Trino-Secure</title>
+<script>document.documentElement.classList.toggle('dark',(localStorage.getItem('ts-theme')||'dark')==='dark');</script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300..700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="assets/tw.js"></script>
+<link rel="stylesheet" href="assets/theme.css" />
+</head>
+<body>
+<template id="page">
+  <div class="mx-auto max-w-[1180px] px-4 py-6 md:px-6 md:py-8">
+    <div id="head"></div>
+    <div class="mt-6 card overflow-hidden">
+      <div class="overflow-x-auto"><table class="tbl min-w-[820px]">
+        <thead><tr><th>Subject / Alias</th><th class="w-28">Type</th><th class="w-32">Issuer</th><th class="w-44">Expiry</th><th class="w-28">Status</th><th class="w-10"></th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table></div>
+    </div>
+  </div>
+</template>
+<script>window.PAGE = { id: 'certs', title: 'Certificates' };</script>
+<script src="assets/shell.js"></script>
+<script>
+(function () {
+  var I = Shell.icon;
+  document.getElementById('head').innerHTML = Shell.ui.pageHeader({
+    title: 'Certificates', subtitle: 'TLS certificates and trust material used by the coordinator and workers.',
+    actions: Shell.ui.button({ variant: 'primary', size: 'sm', icon: 'upload', label: 'Upload certificate', attrs: ' id="up"' }),
+  });
+  var CERTS = [
+    { alias: 'trino-internal', cn: 'CN=trino.prod.internal', type: 'PEM', issuer: 'Internal CA', exp: 'Apr 2, 2027', days: 656, status: 'Active' },
+    { alias: 'coordinator-https', cn: 'CN=*.trino.prod.internal', type: 'PEM', issuer: "Let's Encrypt", exp: 'Jul 4, 2026', days: 19, status: 'Active', warn: true },
+    { alias: 'ldap-truststore', cn: 'CN=ad.corp.internal', type: 'JKS', issuer: 'Corp Root CA', exp: 'Jan 18, 2028', days: 947, status: 'Active' },
+    { alias: 'client-mtls-root', cn: 'CN=Trino Client Root', type: 'PEM', issuer: 'Internal CA', exp: 'Sep 30, 2029', days: 1568, status: 'Active' },
+    { alias: 'legacy-worker', cn: 'CN=worker-07.trino', type: 'PEM', issuer: 'Internal CA', exp: 'May 1, 2026', days: -45, status: 'Expired' },
+  ];
+  var tbody = document.getElementById('rows');
+  tbody.innerHTML = CERTS.map(function (c, i) {
+    var expCls = c.status === 'Expired' ? 'text-destructive' : c.warn ? 'text-warning' : 'text-muted-foreground';
+    return '<tr class="row-hover cursor-pointer" data-i="' + i + '">' +
+      '<td><div class="flex items-center gap-2.5"><span class="flex h-7 w-7 items-center justify-center rounded-md bg-' + (c.status === 'Expired' ? 'destructive' : 'primary') + '/12 text-' + (c.status === 'Expired' ? 'destructive' : 'primary') + ' [&>svg]:w-4 [&>svg]:h-4">' + I('cert') + '</span><div><div class="font-medium text-[13px]">' + c.alias + '</div><div class="text-[11px] text-muted-foreground mono">' + c.cn + '</div></div></div></td>' +
+      '<td><span class="badge badge-neutral">' + c.type + '</span></td>' +
+      '<td class="text-[13px] text-muted-foreground">' + c.issuer + '</td>' +
+      '<td><div class="text-[13px] ' + expCls + '">' + c.exp + '</div><div class="text-[11px] ' + expCls + '">' + (c.days < 0 ? Math.abs(c.days) + ' days ago' : 'in ' + c.days + ' days') + '</div></td>' +
+      '<td>' + Shell.badge(c.status) + (c.warn ? '<div class="mt-1"><span class="badge badge-warning">' + I('alert') + 'expiring</span></div>' : '') + '</td>' +
+      '<td><span class="text-muted-foreground [&>svg]:w-4 [&>svg]:h-4">' + I('chevronr') + '</span></td></tr>';
+  }).join('');
+  tbody.querySelectorAll('[data-i]').forEach(function (tr) { tr.addEventListener('click', function () { inspect(CERTS[+tr.dataset.i]); }); });
+
+  function inspect(c) {
+    var rows = [['Alias', c.alias], ['Subject', c.cn], ['Issuer', c.issuer], ['Type', c.type], ['Serial', '0x4A:1F:9C:22:7E:08'], ['Signature', 'SHA-256 with RSA'], ['Key', 'RSA 2048-bit'], ['Valid from', 'Apr 2, 2025'], ['Valid until', c.exp], ['SHA-1 fingerprint', 'A2:9F:11:0C:7B:…:34']];
+    Shell.drawer({ title: c.alias, subtitle: 'Certificate detail', width: 540,
+      body: '<div class="space-y-5">' +
+        (c.warn ? '<div class="rounded-md border border-warning/40 bg-warning/[0.06] p-3 flex gap-2.5 text-[13px]"><span class="text-warning [&>svg]:w-4 [&>svg]:h-4 mt-0.5">' + I('alert') + '</span><span>Expires in <b>' + c.days + ' days</b>. Rotate before expiry to avoid TLS handshake failures.</span></div>' : '') +
+        (c.status === 'Expired' ? '<div class="rounded-md border border-destructive/40 bg-destructive/[0.06] p-3 flex gap-2.5 text-[13px]"><span class="text-destructive [&>svg]:w-4 [&>svg]:h-4 mt-0.5">' + I('alert') + '</span><span>This certificate <b>expired</b> and is no longer trusted.</span></div>' : '') +
+        '<dl class="divide-y divide-border rounded-md border border-border">' + rows.map(function (r) { return '<div class="flex items-start justify-between gap-4 px-3 py-2"><dt class="text-[12px] text-muted-foreground">' + r[0] + '</dt><dd class="text-[13px] font-medium mono text-right break-all">' + r[1] + '</dd></div>'; }).join('') + '</dl></div>',
+      footer: '<button class="btn btn-ghost text-destructive mr-auto" data-del>' + I('trash', 'w-4 h-4') + 'Remove</button><button class="btn btn-outline" data-cancel>Close</button><button class="btn btn-primary" data-rot>' + I('history', 'w-4 h-4') + 'Rotate</button>',
+      onMount: function (d, close) { d.querySelector('[data-cancel]').addEventListener('click', close); d.querySelector('[data-rot]').addEventListener('click', function () { close(); Shell.toast({ title: 'Rotation started', desc: c.alias + ' · new cert request submitted', tone: 'info' }); }); d.querySelector('[data-del]').addEventListener('click', function () { close(); Shell.confirm({ title: 'Remove ' + c.alias + '?', subtitle: 'Workers using this certificate may fail TLS handshakes.', okText: 'Remove', onConfirm: function () { Shell.toast({ title: 'Certificate removed', tone: 'destructive' }); } }); }); } });
+  }
+  document.getElementById('up').addEventListener('click', function () {
+    Shell.modal({ title: 'Upload certificate', subtitle: 'PEM or JKS · max 1 MB', icon: 'upload', tone: 'primary', width: 480,
+      body: '<div class="space-y-4"><label class="card flex cursor-pointer flex-col items-center gap-2 border-2 border-dashed p-6 text-center hover:border-primary/50"><span class="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-muted-foreground [&>svg]:w-5 [&>svg]:h-5">' + I('upload') + '</span><span class="text-[13px] font-medium">Drop PEM/JKS or click to browse</span></label>' +
+        Shell.ui.field({ label: 'Alias', control: '<input class="input" placeholder="e.g. coordinator-https" />' }) +
+        Shell.ui.field({ label: 'Private key (optional)', control: '<input class="input mono" type="password" placeholder="paste key or leave blank" />' }) + '</div>',
+      footer: '<button class="btn btn-outline" data-cancel>Cancel</button><button class="btn btn-primary" data-ok>Upload</button>',
+      onMount: function (m, close) { m.querySelector('[data-cancel]').addEventListener('click', close); m.querySelector('[data-ok]').addEventListener('click', function () { close(); Shell.toast({ title: 'Certificate uploaded', tone: 'success' }); }); } });
+  });
+})();
+</script>
+</body>
+</html>
