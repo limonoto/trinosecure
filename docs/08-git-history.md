@@ -280,3 +280,10 @@ changelog. The public repository starts from a single squashed commit.
 - Excluded from version control: `environments-backup.json` (a local database dump containing an
   internal cluster IP and absolute local paths); added to `.gitignore`.
 - Docs updated: 08-git-history.md (this entry).
+
+### 3793c27 — 2026-09-01 — feat(ansible-runner): vendor the headless Ansible executor into the repo
+- Significance: The runner lived in a sibling directory outside the app, so the published
+  repository was missing the service `docker-compose.yml` builds. The FastAPI sidecar
+  (`/run`, `/run/stream`, `/probe`, `/import`, `/health`) now lives at `ansible-runner/` and the
+  Compose build context points at `./ansible-runner` instead of `../ansible-runner`.
+- Docs updated: 02-architecture.md (new Ansible Runner sidecar section), 08-git-history.md.
