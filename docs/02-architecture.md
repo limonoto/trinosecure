@@ -60,6 +60,25 @@ Trino's `security.config-file` accepts **either a local file path or an HTTP end
 
 The chosen mode is per **Trino environment** (see [05-database-schema.md](05-database-schema.md)).
 
+### Ansible Runner sidecar (`ansible-runner/`)
+
+Mode B needs to reach hosts the Next.js process cannot touch directly, so file delivery and
+config import are delegated to a small FastAPI sidecar that ships in this repo and runs as its
+own Docker Compose service. It holds no state and no credentials: SSH user, password or PEM key
+arrive per request, are written to a temp workspace (key at `0600`), and the workspace is removed
+in a `finally` block once the run ends.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /run` | Run a playbook, block until `ansible-playbook` exits, return stdout/stderr/return code. |
+| `POST /run/stream` | Same, streaming Ansible output line by line as SSE. |
+| `POST /probe` | `ansible.builtin.ping` against one host — SSH reachability check (30 s timeout). |
+| `POST /import` | Fetch `rules.json`, `resource-groups.json`, `group-provider.txt`, `password.db` and `catalog/*.properties` from a coordinator over SFTP. |
+| `GET /health` | Liveness probe used by the Compose healthcheck. |
+
+The app addresses it via `ANSIBLE_RUNNER_URL` (defaults to `http://ansible-runner:8000` under
+Compose). Operational details are in [11-deployment-guide.md](11-deployment-guide.md).
+
 ## The central challenge: consistency across UI ↔ files ↔ DB
 
 This is the engineering core of the project. The UI must handle:

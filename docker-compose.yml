@@ -40,7 +40,7 @@ services:
   # Next.js side (defaults to http://ansible-runner:8000 in Docker Compose).
   ansible-runner:
     build:
-      context: ../ansible-runner
+      context: ./ansible-runner
       dockerfile: Dockerfile
     container_name: trino-secure-ansible-runner
     restart: unless-stopped
